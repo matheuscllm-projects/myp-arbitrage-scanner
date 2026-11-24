@@ -52,7 +52,7 @@ python myp_arbitrage_scanner.py --editions "Ascended Heroes"
 python myp_arbitrage_scanner.py --editions "Prismatic" -o my_output.xlsx
 ```
 
-Principais flags: `--editions <substr>...`, `--threshold <int>` (inteiro em
+Principais flags: `--editions <substr>...`, `--threshold <int>` (margem sobre a venda; inteiro em
 percent — convenção oposta à da ferramenta irmã, que usa fração), `--min-price
 <float>`, `--delay <float>`, `--max-editions`, `--max-products`,
 `--chunk-index` / `--chunk-total` (matrix). Detalhes completos em

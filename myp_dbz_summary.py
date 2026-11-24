@@ -23,6 +23,7 @@ Uso:
 from __future__ import annotations
 
 from chat_format import reference_price
+from margin import COL_MARGEM, COL_ROI, require_new_margin
 
 import argparse
 import sys
@@ -110,6 +111,7 @@ def _sheet_records(wb, sheet_name: str) -> list[dict]:
     if not rows:
         return []
     headers = list(rows[0])
+    require_new_margin(headers)
     out = []
     for r in rows[1:]:
         rec = dict(zip(headers, r))
@@ -162,7 +164,7 @@ def build_markdown(xlsx: str, output: str, run_id: str = "",
 
     def margin(c):
         try:
-            return float(c.get("Margin %") or 0)
+            return float(c.get(COL_MARGEM) or 0)
         except (TypeError, ValueError):
             return 0.0
 
@@ -193,12 +195,12 @@ def build_markdown(xlsx: str, output: str, run_id: str = "",
         f"**Truncation:** {len(truncations)}")
     lines.append("")
     lines.append(
-        f"Margem BRUTA base compra `(TCG R$ − MYP R$) ÷ MYP R$`, sem taxas · "
+        f"Margem SOBRE A VENDA `(TCG R$ − MYP R$) ÷ TCG R$` (ROI em coluna à parte), sem taxas · "
         f"Referência: TCGplayer market via tcgcsv.com (cats 80 Fusion World + "
         f"27 Masters) · Câmbio US$1 = R${float(fx):.4f} · Ofertas: menor EN NM "
         f"ao vivo no MYP (dbsfusion + dbsmasters)."
         if fx else
-        "Margem BRUTA base compra; referência TCGplayer market via tcgcsv.com.")
+        "Margem sobre a venda; referência TCGplayer market via tcgcsv.com.")
     lines.append("")
 
     # ── honestidade de referência (espelho da "Cobertura de preço TCG real") ──
@@ -229,15 +231,15 @@ def build_markdown(xlsx: str, output: str, run_id: str = "",
     if not deals_clean:
         lines.append("> Nenhum deal limpo nesta run.")
     else:
-        lines.append("| # | Margem % | MYP R$ | TCG US$ | Dif | Carta | Set | Raridade | Cond | Qtd | Links |")
-        lines.append("|---|---:|---:|---:|---:|---|---|---|---|---:|---|")
+        lines.append("| # | Margem venda % | ROI aquisição % | MYP R$ | TCG US$ | Dif | Carta | Set | Raridade | Cond | Qtd | Links |")
+        lines.append("|---|---:|---:|---:|---:|---:|---|---|---|---|---:|---|")
         for i, c in enumerate(deals_clean[:50], 1):
             carta = md_cell(carta_label(c.get("EN Name") or c.get("Card Name"),
                                         c.get("Código")))
             links = delivery_links(c.get("URL"), c.get("TCG URL"),
                                    c.get("EN Name"), c.get("Código"))
             lines.append(
-                f"| {i} | **{fmt_pct(c.get('Margin %'))}** | "
+                f"| {i} | **{fmt_pct(c.get(COL_MARGEM))}** | {fmt_pct(c.get(COL_ROI))} | "
                 f"{fmt_brl(c.get('MYP EN NM (R$)'))} | "
                 f"{reference_price(fmt_usd(c.get('TCG US$')), c.get('TCG URL'))} | {fmt_brl(c.get('Diff (R$)'))} | "
                 f"{carta} | {md_cell(c.get('Edition'))} | "
@@ -256,8 +258,8 @@ def build_markdown(xlsx: str, output: str, run_id: str = "",
                      "**1 seller EN** (possível mislabel de idioma). A margem "
                      "NÃO muda — valide no link TCG antes de operar.")
         lines.append("")
-        lines.append("| # | Margem % | MYP R$ | TCG US$ | Dif | Carta | Set | Raridade | Cond | Qtd | Flag | Links |")
-        lines.append("|---|---:|---:|---:|---:|---|---|---|---|---:|---|---|")
+        lines.append("| # | Margem venda % | ROI aquisição % | MYP R$ | TCG US$ | Dif | Carta | Set | Raridade | Cond | Qtd | Flag | Links |")
+        lines.append("|---|---:|---:|---:|---:|---:|---|---|---|---|---:|---|---|")
         for i, c in enumerate(deals_review[:50], 1):
             carta = md_cell(carta_label(c.get("EN Name") or c.get("Card Name"),
                                         c.get("Código")))
@@ -265,7 +267,7 @@ def build_markdown(xlsx: str, output: str, run_id: str = "",
                                    c.get("EN Name"), c.get("Código"))
             flag = md_cell("; ".join(row_flags(c)))
             lines.append(
-                f"| {i} | {fmt_pct(c.get('Margin %'))} | "
+                f"| {i} | {fmt_pct(c.get(COL_MARGEM))} | {fmt_pct(c.get(COL_ROI))} | "
                 f"{fmt_brl(c.get('MYP EN NM (R$)'))} | "
                 f"{reference_price(fmt_usd(c.get('TCG US$')), c.get('TCG URL'))} | {fmt_brl(c.get('Diff (R$)'))} | "
                 f"{carta} | {md_cell(c.get('Edition'))} | "

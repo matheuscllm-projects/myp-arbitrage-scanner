@@ -68,7 +68,7 @@ def make_card(**kw):
         myp_lowest_en_nm=100.0, en_nm_sellers=3, tcg_usd=40.0, tcg_brl=200.0,
         tcg_url="https://www.tcgplayer.com/product/1", rarity="Special Rare",
         subtype="Foil", join_via="codigo/grupo-edição/nome-exato (cat-seção)",
-        margin_pct=1.0, margin_brl=100.0,
+        margin_pct=0.5, margin_brl=100.0,
         last_updated="2026-08-03 00:00",
     )
     base.update(kw)
@@ -452,7 +452,7 @@ def test_scrape_dbz_product_end_to_end():
     # o _spr casou o produto (SPR), nunca o base de US$1
     assert card.tcg_usd == 40.0 and "variante" in card.join_via
     assert card.myp_lowest_en_nm == 100.0 and card.en_nm_sellers == 2
-    assert abs(card.margin_pct - 1.0) < 1e-9        # (200−100)/100
+    assert abs(card.margin_pct - 0.5) < 1e-9        # (200−100)/200 sobre a venda
     assert card.code == "BT1-073" and "SPR" in card.name.upper()
     # gate de lixo: MYP 100 vs 50% da ref (100) — igual NÃO é lixo (< estrito)
     assert card.flag_lixo is False
@@ -492,12 +492,12 @@ def _build_xlsx(tmpdir: Path) -> Path:
     clean = make_card()                                   # 100% margem, limpo
     lixo = make_card(name="Golden Frieza - BT2-001", en_name="Golden Frieza",
                      code="BT2-001", myp_lowest_en_nm=60.0, tcg_usd=40.0,
-                     tcg_brl=200.0, margin_pct=(200 - 60) / 60,
+                     tcg_brl=200.0, margin_pct=(200 - 60) / 200,
                      margin_brl=140.0, flag_lixo=True)
     volatil = make_card(name="Bulma - SB01-057", en_name="Bulma",
                         code="SB01-057", tcg_low_usd=2000.0, tcg_usd=506.0,
                         tcg_brl=2530.0, myp_lowest_en_nm=1000.0,
-                        margin_pct=1.53, margin_brl=1530.0,
+                        margin_pct=0.6047, margin_brl=1530.0,
                         flag_ref_volatil=True)
     abaixo = make_card(name="Vegeta - BT3-002", en_name="Vegeta",
                        code="BT3-002", margin_pct=0.10, margin_brl=20.0)
@@ -530,7 +530,7 @@ def test_xlsx_estrutura_e_threshold():
         # Deals ≥30%: clean, lixo, volatil, trunc (0.55) — abaixo (0.10) não
         assert summary["Deals Found"] == 4
         headers = [c.value for c in wb["All EN Cards"][1]]
-        for h in ("Card Name", "Código", "TCG US$", "TCG Source", "Margin %",
+        for h in ("Card Name", "Código", "TCG US$", "TCG Source", "Margem venda %",
                   "URL", "TCG URL", "⚠️ Possível Lixo", "⚠️ Ref Volátil"):
             assert h in headers, h
         wb.close()
@@ -563,7 +563,7 @@ def test_summary_markdown_buckets_e_links():
         # markdown (nunca substring solta de domínio)
         assert "[TCG](https://www.tcgplayer.com/search/" in semref_line
         # margem do deal limpo em negrito, percentual
-        assert "**100.0%**" in md
+        assert "**50.0%**" in md
         # cobertura honesta
         assert "Cobertura de referência real" in md
         # deal 10% NÃO aparece como deal

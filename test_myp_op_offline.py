@@ -70,7 +70,7 @@ def make_card(**kw):
         myp_lowest_en_nm=100.0, en_nm_sellers=3, tcg_usd=40.0, tcg_brl=200.0,
         tcg_url="https://www.tcgplayer.com/product/1", rarity="Super Rare",
         subtype="Normal", join_via="codigo/grupo-edição/nome-exato",
-        margin_pct=1.0, margin_brl=100.0,
+        margin_pct=0.5, margin_brl=100.0,
         last_updated="2026-08-09 00:00",
     )
     base.update(kw)
@@ -376,7 +376,7 @@ def test_scrape_op_product_end_to_end():
     # h1 sem qualificador → casa o BASE (nunca o Parallel de US$400)
     assert card.tcg_usd == 40.0 and "nome-exato" in card.join_via
     assert card.myp_lowest_en_nm == 100.0 and card.en_nm_sellers == 2
-    assert abs(card.margin_pct - 1.0) < 1e-9        # (200−100)/100
+    assert abs(card.margin_pct - 0.5) < 1e-9        # (200−100)/200 sobre a venda
     assert card.code == "OP01-025"
     assert card.flag_lixo is False                   # 100 = 50% de 200: < estrito
     assert card.single_en_seller_risk is False
@@ -432,12 +432,12 @@ def _build_xlsx(tmpdir: Path) -> Path:
     clean = make_card()                                   # 100% margem, limpo
     lixo = make_card(name="Shanks - OP01-120", en_name="Shanks",
                      code="OP01-120", myp_lowest_en_nm=60.0, tcg_usd=40.0,
-                     tcg_brl=200.0, margin_pct=(200 - 60) / 60,
+                     tcg_brl=200.0, margin_pct=(200 - 60) / 200,
                      margin_brl=140.0, flag_lixo=True)
     volatil = make_card(name="Nami - OP01-016", en_name="Nami",
                         code="OP01-016", tcg_low_usd=2000.0, tcg_usd=506.0,
                         tcg_brl=2530.0, myp_lowest_en_nm=1000.0,
-                        margin_pct=1.53, margin_brl=1530.0,
+                        margin_pct=0.6047, margin_brl=1530.0,
                         flag_ref_volatil=True)
     abaixo = make_card(name="Usopp - OP01-002", en_name="Usopp",
                        code="OP01-002", margin_pct=0.10, margin_brl=20.0)
@@ -470,7 +470,7 @@ def test_xlsx_estrutura_e_threshold():
         # Deals ≥30%: clean, lixo, volatil, trunc (0.55) — abaixo (0.10) não
         assert summary["Deals Found"] == 4
         headers = [c.value for c in wb["All EN Cards"][1]]
-        for h in ("Card Name", "Código", "TCG US$", "TCG Source", "Margin %",
+        for h in ("Card Name", "Código", "TCG US$", "TCG Source", "Margem venda %",
                   "URL", "TCG URL", "⚠️ Possível Lixo", "⚠️ Ref Volátil"):
             assert h in headers, h
         wb.close()
@@ -500,7 +500,7 @@ def test_summary_markdown_buckets_e_links():
         assert "número fora do índice" in semref_line
         assert "[oferta](" in semref_line
         assert "[TCG](https://www.tcgplayer.com/search/" in semref_line
-        assert "**100.0%**" in md
+        assert "**50.0%**" in md
         assert "Cobertura de referência real" in md
         # referência declarada = cat 68 (One Piece)
         assert "cat 68" in md

@@ -140,7 +140,7 @@ python myp_dbz_summary.py results/dbz_grupoN_<AAAA-MM-DD>.xlsx -o results/dbz_gr
 
 ## Regras que este skill NÃO muda
 
-- Margem BRUTA base compra `(TCG_BRL − MYP_BRL)/MYP_BRL`, threshold 30
+- Margem SOBRE A VENDA `(TCG_BRL − MYP_BRL)/TCG_BRL` (ROI em coluna à parte, só informativo), threshold 30
   inteiro, piso `--min-price 50` (singles).
 - NM-only (célula de qualidade, token exato) + EN-only (flag-icon) —
   parser herdado do scanner Pokémon.

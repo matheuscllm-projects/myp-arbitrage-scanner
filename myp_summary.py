@@ -14,6 +14,7 @@ Uso:
 from __future__ import annotations
 
 from chat_format import reference_price
+from margin import COL_MARGEM, COL_ROI, require_new_margin
 
 import argparse
 import sys
@@ -205,6 +206,7 @@ def build_markdown(xlsx: str, output: str, scan_type: str,
         rows = list(ws.iter_rows(values_only=True))
         if rows:
             headers = list(rows[0])
+            require_new_margin(headers)
             for r in rows[1:]:
                 rec = dict(zip(headers, r))
                 if rec.get("Card Name"):
@@ -221,13 +223,13 @@ def build_markdown(xlsx: str, output: str, scan_type: str,
     # `deals_clarif` desta versão — eram impressos como "deals limpos (≥30%)",
     # uma afirmação falsa (carta de 27% rotulada como ≥30%). XLSX antigo sem o
     # campo cai no default 0.25 (preserva comportamento histórico).
-    _thr_raw = summary_data.get("Margin Threshold", "25%")
+    _thr_raw = summary_data.get("Margin Threshold", "30%")
     try:
         deal_floor = float(str(_thr_raw).strip().rstrip("%")) / 100.0
     except (TypeError, ValueError):
-        deal_floor = 0.25
-    deals = [c for c in all_cards if c.get("Margin %") and c["Margin %"] >= deal_floor]
-    deals_sorted = sorted(deals, key=lambda c: c.get("Margin %") or 0, reverse=True)
+        deal_floor = 0.30
+    deals = [c for c in all_cards if c.get(COL_MARGEM) and c[COL_MARGEM] >= deal_floor]
+    deals_sorted = sorted(deals, key=lambda c: c.get(COL_MARGEM) or 0, reverse=True)
 
     # v5.8 (2026-05-16): Top 15 "limpos" exclui agora 3 buckets: supranumerários,
     # truncation-risk E tcg_suspect (Jirachi PR-SM_SM161 caso). Antes Jirachi
@@ -415,8 +417,8 @@ def build_markdown(xlsx: str, output: str, scan_type: str,
     if not deals_clean:
         lines.append("> Nenhum deal limpo nesta run.")
     else:
-        lines.append("| # | Margem % | MYP R$ | TCG US$ | Dif | Carta | Set | Raridade | Cond | Qtd | Links |")
-        lines.append("|---|---:|---:|---:|---:|---|---|---|---|---:|---|")
+        lines.append("| # | Margem venda % | ROI aquisição % | MYP R$ | TCG US$ | Dif | Carta | Set | Raridade | Cond | Qtd | Links |")
+        lines.append("|---|---:|---:|---:|---:|---:|---|---|---|---|---:|---|")
         for i, c in enumerate(deals_clean, 1):
             name = c.get("Card Name")
             carta = md_cell(carta_label(name))
@@ -424,7 +426,7 @@ def build_markdown(xlsx: str, output: str, scan_type: str,
             rarity = md_cell((c.get("Rarity") or "").strip()) or "—"
             myp = fmt_brl(c.get("MYP EN NM (R$)"))
             tcg_usd = reference_price(fmt_usd(c.get("TCG US$")), c.get("TCG URL"))
-            margin = fmt_pct(c.get("Margin %"))
+            margin = fmt_pct(c.get(COL_MARGEM))
             diff = fmt_brl(c.get("Diff (R$)"))
             qty = c.get("NM Sellers") or 0
             links = delivery_links(
@@ -433,7 +435,7 @@ def build_markdown(xlsx: str, output: str, scan_type: str,
                 tcg_url=c.get("TCG URL"),
             )
             lines.append(
-                f"| {i} | **{margin}** | {myp} | {tcg_usd} | {diff} | "
+                f"| {i} | **{margin}** | {fmt_pct(c.get(COL_ROI))} | {myp} | {tcg_usd} | {diff} | "
                 f"{carta} | {ed} | {rarity} | NM | {qty} | {links} |"
             )
     lines.append("")
@@ -454,8 +456,8 @@ def build_markdown(xlsx: str, output: str, scan_type: str,
                      "inflada). **Antes de operar:** confira no Link TCG se a versão/"
                      "acabamento é o da oferta — o motivo está na coluna Motivo.")
         lines.append("")
-        lines.append("| # | Margem (piso) | MYP R$ | TCG US$ | Dif | Carta | Set | Raridade | Cond | Qtd | Motivo | Links |")
-        lines.append("|---|---:|---:|---:|---:|---|---|---|---|---:|---|---|")
+        lines.append("| # | Margem venda (piso) | ROI aquisição % | MYP R$ | TCG US$ | Dif | Carta | Set | Raridade | Cond | Qtd | Motivo | Links |")
+        lines.append("|---|---:|---:|---:|---:|---:|---|---|---|---|---:|---|---|")
         for i, c in enumerate(deals_review, 1):
             name = c.get("Card Name")
             carta = md_cell(carta_label(name))
@@ -463,7 +465,7 @@ def build_markdown(xlsx: str, output: str, scan_type: str,
             rarity = md_cell((c.get("Rarity") or "").strip()) or "—"
             myp = fmt_brl(c.get("MYP EN NM (R$)"))
             tcg_usd = reference_price(fmt_usd(c.get("TCG US$")), c.get("TCG URL"))
-            margin = fmt_pct(c.get("Margin %"))
+            margin = fmt_pct(c.get(COL_MARGEM))
             diff = fmt_brl(c.get("Diff (R$)"))
             qty = c.get("NM Sellers") or 0
             motivo = md_cell((c.get("Match Reason") or "").strip()) or "—"
@@ -473,7 +475,7 @@ def build_markdown(xlsx: str, output: str, scan_type: str,
                 tcg_url=c.get("TCG URL"),
             )
             lines.append(
-                f"| {i} | {margin} | {myp} | {tcg_usd} | {diff} | "
+                f"| {i} | {margin} | {fmt_pct(c.get(COL_ROI))} | {myp} | {tcg_usd} | {diff} | "
                 f"{carta} | {ed} | {rarity} | NM | {qty} | {motivo} | {links} |"
             )
         lines.append("")
@@ -493,7 +495,7 @@ def build_markdown(xlsx: str, output: str, scan_type: str,
         # v5.11.4: Carta (nome+número via carta_label) + Links (oferta MYP · TCG)
         # no formato canônico — esses deals são a MAIOR PARTE da entrega do
         # operador e antes saíam sem links clicáveis.
-        lines.append("| # | Carta | Edição | MYP R$ | TCG R$ | Margem (suspeita) | Links |")
+        lines.append("| # | Carta | Edição | MYP R$ | TCG R$ | Margem venda (suspeita) | Links |")
         lines.append("|---|---|---|---:|---:|---:|---|")
         for i, c in enumerate(deals_supranum, 1):
             name = c.get("Card Name")
@@ -501,7 +503,7 @@ def build_markdown(xlsx: str, output: str, scan_type: str,
             ed = md_cell((c.get("Edition") or "")[:30])
             myp = fmt_brl(c.get("MYP EN NM (R$)"))
             tcg = reference_price(fmt_brl(c.get("TCG Player (R$)")), c.get("TCG URL") if _is_real(c) else c.get("URL"))
-            margin = fmt_pct(c.get("Margin %"))
+            margin = fmt_pct(c.get(COL_MARGEM))
             links = delivery_links(
                 c.get("URL"), name, (c.get("Edition") or "").strip(),
                 oversized=bool(c.get("⚠️ COLLECTOR#")),
@@ -522,7 +524,7 @@ def build_markdown(xlsx: str, output: str, scan_type: str,
         lines.append("")
         # v5.11.4: Carta + Links também no balde de suspeitos (auditoria do
         # operador precisa do link de oferta MYP + TCG pra validar manualmente).
-        lines.append("| # | Carta | Edição | MYP R$ | TCG decl R$ | Última venda R$ | Margem (fake) | Links |")
+        lines.append("| # | Carta | Edição | MYP R$ | TCG decl R$ | Última venda R$ | Margem venda (fake) | Links |")
         lines.append("|---|---|---|---:|---:|---:|---:|---|")
         for i, c in enumerate(deals_suspect, 1):
             name = c.get("Card Name")
@@ -531,7 +533,7 @@ def build_markdown(xlsx: str, output: str, scan_type: str,
             myp = fmt_brl(c.get("MYP EN NM (R$)"))
             tcg = reference_price(fmt_brl(c.get("TCG Player (R$)")), c.get("TCG URL") if _is_real(c) else c.get("URL"))
             last = fmt_brl(c.get("MYP Last Sale (R$)"))
-            margin = fmt_pct(c.get("Margin %"))
+            margin = fmt_pct(c.get(COL_MARGEM))
             links = delivery_links(
                 c.get("URL"), name, (c.get("Edition") or "").strip(),
                 oversized=bool(c.get("⚠️ COLLECTOR#")),
@@ -556,7 +558,7 @@ def build_markdown(xlsx: str, output: str, scan_type: str,
                      "NM no Link TCG. (Desde a v5.15 o CI entrega preço real via tcgcsv; "
                      "deals nesse balde indicam sets sem cobertura tcgcsv/pokemontcg.io.)")
         lines.append("")
-        lines.append("| # | Margem (estimada) | MYP R$ | TCG est. R$ | Dif (est.) | Carta | Set | Raridade | Cond | Qtd | Links |")
+        lines.append("| # | Margem venda (estimada) | MYP R$ | TCG est. R$ | Dif (est.) | Carta | Set | Raridade | Cond | Qtd | Links |")
         lines.append("|---|---:|---:|---:|---:|---|---|---|---|---:|---|")
         for i, c in enumerate(deals_fallback, 1):
             name = c.get("Card Name")
@@ -565,7 +567,7 @@ def build_markdown(xlsx: str, output: str, scan_type: str,
             rarity = md_cell((c.get("Rarity") or "").strip()) or "—"
             myp = fmt_brl(c.get("MYP EN NM (R$)"))
             tcg = reference_price(fmt_brl(c.get("TCG Player (R$)")), c.get("TCG URL") if _is_real(c) else c.get("URL"))
-            margin = fmt_pct(c.get("Margin %"))
+            margin = fmt_pct(c.get(COL_MARGEM))
             diff = fmt_brl(c.get("Diff (R$)"))
             qty = c.get("NM Sellers") or 0
             links = delivery_links(

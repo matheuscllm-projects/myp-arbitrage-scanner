@@ -44,13 +44,14 @@ from myp_arbitrage_scanner import (
 LEGACY_18_COLUMNS = [
     "Card Name", "Edition", "Rarity",
     "MYP EN NM (R$)", "TCG Player (R$)", "TCG US$", "TCG Source", "MYP Last Sale (R$)",
-    "Margin %", "Diff (R$)", "NM Sellers",
+    "Margem venda %", "Diff (R$)", "NM Sellers",
     "⚠️ EN Trunc", "⚠️ TCG Suspect", "⚠️ Single Seller", "⚠️ COLLECTOR#",
     "URL", "Updated", "TCG URL",
 ]
 V520_MATCH_COLUMNS = [
     "MYP Finish", "TCG Finish", "TCG Product ID", "TCG Product Name",
     "Match Status", "Match Reason",
+    "ROI aquisição %",   # informativo, no fim (não desloca colunas por posição)
 ]
 
 # NOTE (v5.8.8, 2026-05-29): PT_CONDITION_MARKERS / EN_CONDITION_MARKERS foram
@@ -73,7 +74,7 @@ def make_jirachi():
         tcg_player_price=1499.00,
         myp_last_sale_brl=19.99,
         tcg_suspect=True,
-        margin_pct=14.0,
+        margin_pct=0.9333,
         margin_brl=1399.01,
         en_nm_sellers=1,
         single_en_seller_risk=True,  # MYP-LOW-a 2026-05-30: coerência com scanner real (en_nm_sellers=1 < min default 2)
@@ -92,7 +93,7 @@ def make_clean_deal():
         tcg_player_price=200.00,
         myp_last_sale_brl=180.00,
         tcg_suspect=False,
-        margin_pct=1.5,
+        margin_pct=0.6,
         margin_brl=120.00,
         en_nm_sellers=4,
         last_updated="2026-05-16 19:30",
@@ -110,7 +111,7 @@ def make_borderline_deal():
         tcg_player_price=950.00,
         myp_last_sale_brl=100.00,
         tcg_suspect=False,
-        margin_pct=18.0,
+        margin_pct=0.95,
         margin_brl=900.00,
         en_nm_sellers=2,
         last_updated="2026-05-16 19:30",
@@ -159,7 +160,7 @@ def test_xlsx_end_to_end():
     # margin 1.5 (150%) >> threshold 0.25 → entra
     # (margin_pct é Decimal 1.5 = 150% no current code)
     # Borderline 18 (1800%) também entra
-    # Actually let me check — threshold 0.25 = 25%. clean margin_pct=1.5 means 150%.
+    # Actually let me check — threshold 0.25 = 25%. clean margin_pct=0.6 means 150%.
     assert clean_row is not None, "Clean deal sumiu de 🔥 Deals"
     # v5.11.1: "TCG US$" em idx 5 → margin agora idx 7.
     print(f"  Clean deal em Deals: name={clean_row[0]!r}, margin={clean_row[7]}")
@@ -260,7 +261,7 @@ def test_price_cell_hyperlinks():
         myp_lowest_en_nm=120.0,
         tcg_player_price=240.0,
         myp_last_sale_brl=220.0,
-        margin_pct=1.00,
+        margin_pct=0.50,
         margin_brl=120.0,
         en_nm_sellers=5,
         last_updated="2026-05-29 12:00",
@@ -377,7 +378,7 @@ def test_tcg_url_column():
         myp_lowest_en_nm=120.0,
         tcg_player_price=240.0,
         myp_last_sale_brl=220.0,
-        margin_pct=1.00,
+        margin_pct=0.50,
         margin_brl=120.0,
         en_nm_sellers=5,
         last_updated="2026-06-10 12:00",
@@ -664,9 +665,10 @@ def test_marketplace_pagination():
     # O CORAÇÃO DO FIX: lowest EN-NM = 398, não 498.
     assert card.myp_lowest_en_nm == 398.0, \
         f"BUG truncation: lowest EN-NM={card.myp_lowest_en_nm} (esperado 398.0 da pág 2)"
-    # Margem vira deal real ≥25% (+40%).
-    assert abs(card.margin_pct - 0.4005) < 0.01, \
-        f"margem={card.margin_pct} (esperado ~0.40 / +40%)"
+    # Margem vira deal real: ROI +40% = margem sobre a venda ~28,6%.
+    assert abs(card.roi_pct - 0.4005) < 0.01, card.roi_pct
+    assert abs(card.margin_pct - 0.286) < 0.01, \
+        f"margem={card.margin_pct} (esperado ~0.286 sobre a venda)"
     # Paginação seguida com sucesso → risco resolvido.
     assert card.en_truncation_risk is False, \
         "truncation_risk deveria ser resolvido (paginação seguiu sem falha)"
@@ -964,7 +966,7 @@ def test_prices_card_without_estat_tcg():
     assert card.myp_declared_tcg_brl is None, card.myp_declared_tcg_brl
     assert card.tcg_source == "pokemontcg.io", card.tcg_source
     assert abs(card.tcg_player_price - 200.0) < 0.01, card.tcg_player_price
-    assert card.margin_pct is not None and abs(card.margin_pct - 1.0) < 0.01, card.margin_pct
+    assert card.margin_pct is not None and abs(card.margin_pct - 0.5) < 0.01, card.margin_pct
     print("  A2: card sem .estat-tcg precificado via fonte real (R$200, +100%) ✓")
 
 
@@ -1110,7 +1112,7 @@ def test_delivery_table_format():
     md = Path(md_out).read_text(encoding="utf-8")
 
     # Header no formato aprovado.
-    assert "| # | Margem % | MYP R$ | TCG US$ | Dif | Carta | Set | Raridade | Cond | Qtd | Links |" in md, \
+    assert "| # | Margem venda % | ROI aquisição % | MYP R$ | TCG US$ | Dif | Carta | Set | Raridade | Cond | Qtd | Links |" in md, \
         "header da tabela de entrega não bate o formato aprovado"
     # Carta composta + link de oferta clicável + Cond NM + USD.
     assert "Charizard ex 125/191" in md, "Carta composta ausente do markdown"
@@ -1490,7 +1492,8 @@ def test_tcgcsv_end_to_end_real_source_label():
     assert abs(card.tcg_player_price - 60.0) < 1e-6, card.tcg_player_price
     # o preço real (R$60) sobrepôs o `.estat-tcg` declarado (R$300, fake)
     assert abs(card.myp_declared_tcg_brl - 300.0) < 1e-6, card.myp_declared_tcg_brl
-    assert abs(card.margin_pct - 0.20) < 1e-6, card.margin_pct
+    assert abs(card.margin_pct - 1 / 6) < 1e-6, card.margin_pct   # (60-50)/60 sobre a venda
+    assert abs(card.roi_pct - 0.20) < 1e-6, card.roi_pct
     assert sc._stats["tcg_from_tcgcsv"] == 1, sc._stats["tcg_from_tcgcsv"]
     assert sc._stats["tcg_from_real"] == 1
     print("  v5.15 e2e: card sai tcg_source='tcgcsv' (REAL), preço real na margem ✓")
@@ -1502,7 +1505,7 @@ def _tcgcsv_deal(name, myp, tcg_brl, usd, rarity="Double Rare"):
         name=name, edition="Stellar Crown", rarity=rarity,
         product_url=f"https://myp/{name}", myp_lowest_en_nm=myp,
         tcg_player_price=tcg_brl, tcg_real_usd=usd, tcg_source="tcgcsv",
-        myp_last_sale_brl=myp, margin_pct=(tcg_brl - myp) / myp,
+        myp_last_sale_brl=myp, margin_pct=(tcg_brl - myp) / tcg_brl,
         margin_brl=tcg_brl - myp, en_nm_sellers=3, last_updated="2026-06-20",
     )
 
@@ -1601,13 +1604,13 @@ def test_tcg_source_column_explicit():
         name="Iron Crown ex (081/162)", edition="Temporal Forces", rarity="Ultra Rara",
         product_url="https://mypcards.com/x/iron-crown", myp_lowest_en_nm=100.0,
         tcg_player_price=200.0, tcg_real_usd=37.0, tcg_source="pokemontcg.io",
-        myp_last_sale_brl=190.0, margin_pct=1.0, margin_brl=100.0, en_nm_sellers=3,
+        myp_last_sale_brl=190.0, margin_pct=0.5, margin_brl=100.0, en_nm_sellers=3,
     )
     fb = CardData(
         name="Pikachu Comum", edition="Set Antigo", rarity="Comum",
         product_url="https://mypcards.com/x/pika", myp_lowest_en_nm=60.0,
         tcg_player_price=150.0, tcg_real_usd=None, tcg_source="myp_estat",
-        myp_last_sale_brl=140.0, margin_pct=1.5, margin_brl=90.0, en_nm_sellers=2,
+        myp_last_sale_brl=140.0, margin_pct=0.6, margin_brl=90.0, en_nm_sellers=2,
     )
     with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
         out = f.name
@@ -1638,7 +1641,7 @@ def test_tcg_source_roundtrip_aggregate():
 
     # Com a coluna nova: respeita o rótulo escrito.
     hdr = ["Card Name", "Edition", "Rarity", "MYP EN NM (R$)", "TCG Player (R$)",
-           "TCG US$", "TCG Source", "MYP Last Sale (R$)", "Margin %", "Diff (R$)",
+           "TCG US$", "TCG Source", "MYP Last Sale (R$)", "Margem venda %", "Diff (R$)",
            "NM Sellers", "⚠️ EN Trunc", "⚠️ TCG Suspect", "⚠️ Single Seller",
            "⚠️ COLLECTOR#", "URL", "Updated", "TCG URL"]
     real_row = ("Charizard ex", "Surging Sparks", "SIR", 80.0, 200.0, 37.0,
@@ -1768,13 +1771,13 @@ def test_summary_real_coverage_signal():
         name="Charizard ex Holo", edition="Surging Sparks", rarity="SIR",
         product_url="https://myp/c1", myp_lowest_en_nm=80.0, tcg_player_price=200.0,
         tcg_real_usd=None, tcg_source="myp_estat", myp_last_sale_brl=190.0,
-        margin_pct=1.5, margin_brl=120.0, en_nm_sellers=3, last_updated="2026-06-20",
+        margin_pct=0.6, margin_brl=120.0, en_nm_sellers=3, last_updated="2026-06-20",
     )
     fb2 = CardData(
         name="Pikachu ex Holo", edition="Surging Sparks", rarity="Ultra Rara",
         product_url="https://myp/c2", myp_lowest_en_nm=60.0, tcg_player_price=150.0,
         tcg_real_usd=None, tcg_source="myp_estat", myp_last_sale_brl=140.0,
-        margin_pct=1.5, margin_brl=90.0, en_nm_sellers=2, last_updated="2026-06-20",
+        margin_pct=0.6, margin_brl=90.0, en_nm_sellers=2, last_updated="2026-06-20",
     )
     with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
         xlsx = f.name
@@ -1852,13 +1855,13 @@ def test_summary_coverage_mixed_real_fallback():
         name="Charizard ex", edition="Surging Sparks", rarity="SIR",
         product_url="https://myp/r", myp_lowest_en_nm=80.0, tcg_player_price=200.0,
         tcg_real_usd=36.0, tcg_source="pokemontcg.io", myp_last_sale_brl=180.0,
-        margin_pct=1.5, margin_brl=120.0, en_nm_sellers=3, last_updated="2026-06-20",
+        margin_pct=0.6, margin_brl=120.0, en_nm_sellers=3, last_updated="2026-06-20",
     )
     fb = CardData(
         name="Pikachu ex", edition="Surging Sparks", rarity="Ultra Rara",
         product_url="https://myp/f", myp_lowest_en_nm=60.0, tcg_player_price=150.0,
         tcg_real_usd=None, tcg_source="myp_estat", myp_last_sale_brl=140.0,
-        margin_pct=1.5, margin_brl=90.0, en_nm_sellers=2, last_updated="2026-06-20",
+        margin_pct=0.6, margin_brl=90.0, en_nm_sellers=2, last_updated="2026-06-20",
     )
     with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
         xlsx = f.name
@@ -1932,7 +1935,7 @@ def _fallback_deal(name, myp, estat_brl, rarity="Ultra Rara", last_sale=None):
         name=name, edition="Surging Sparks", rarity=rarity,
         product_url=f"https://myp/{name}", myp_lowest_en_nm=myp,
         tcg_player_price=estat_brl, tcg_real_usd=None, tcg_source="myp_estat",
-        myp_last_sale_brl=last_sale, margin_pct=(estat_brl - myp) / myp,
+        myp_last_sale_brl=last_sale, margin_pct=(estat_brl - myp) / estat_brl,
         margin_brl=estat_brl - myp, en_nm_sellers=3, last_updated="2026-06-20",
     )
 
@@ -1943,7 +1946,7 @@ def _real_deal(name, myp, tcg_brl, usd, rarity="Ultra Rara"):
         name=name, edition="Surging Sparks", rarity=rarity,
         product_url=f"https://myp/{name}", myp_lowest_en_nm=myp,
         tcg_player_price=tcg_brl, tcg_real_usd=usd, tcg_source="pokemontcg.io",
-        myp_last_sale_brl=myp, margin_pct=(tcg_brl - myp) / myp,
+        myp_last_sale_brl=myp, margin_pct=(tcg_brl - myp) / tcg_brl,
         margin_brl=tcg_brl - myp, en_nm_sellers=3, last_updated="2026-06-20",
     )
 
@@ -2114,13 +2117,13 @@ def test_summary_coverage_old_xlsx_inference():
         name="Charizard ex", edition="Surging Sparks", rarity="SIR",
         product_url="https://myp/r", myp_lowest_en_nm=80.0, tcg_player_price=200.0,
         tcg_real_usd=36.0, tcg_source="pokemontcg.io", myp_last_sale_brl=180.0,
-        margin_pct=1.5, margin_brl=120.0, en_nm_sellers=3, last_updated="2026-06-20",
+        margin_pct=0.6, margin_brl=120.0, en_nm_sellers=3, last_updated="2026-06-20",
     )
     fb = CardData(
         name="Pikachu ex", edition="Surging Sparks", rarity="Ultra Rara",
         product_url="https://myp/f", myp_lowest_en_nm=60.0, tcg_player_price=150.0,
         tcg_real_usd=None, tcg_source="myp_estat", myp_last_sale_brl=140.0,
-        margin_pct=1.5, margin_brl=90.0, en_nm_sellers=2, last_updated="2026-06-20",
+        margin_pct=0.6, margin_brl=90.0, en_nm_sellers=2, last_updated="2026-06-20",
     )
     with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
         xlsx = f.name
@@ -2149,13 +2152,13 @@ def test_summary_coverage_excludes_unpriced_card():
         name="Charizard ex", edition="Surging Sparks", rarity="SIR",
         product_url="https://myp/r", myp_lowest_en_nm=80.0, tcg_player_price=200.0,
         tcg_real_usd=36.0, tcg_source="pokemontcg.io", myp_last_sale_brl=180.0,
-        margin_pct=1.5, margin_brl=120.0, en_nm_sellers=3, last_updated="2026-06-20",
+        margin_pct=0.6, margin_brl=120.0, en_nm_sellers=3, last_updated="2026-06-20",
     )
     noprice = CardData(
         name="Pikachu ex", edition="Surging Sparks", rarity="Ultra Rara",
         product_url="https://myp/f", myp_lowest_en_nm=60.0, tcg_player_price=150.0,
         tcg_real_usd=None, tcg_source="myp_estat", myp_last_sale_brl=140.0,
-        margin_pct=1.5, margin_brl=90.0, en_nm_sellers=2, last_updated="2026-06-20",
+        margin_pct=0.6, margin_brl=90.0, en_nm_sellers=2, last_updated="2026-06-20",
     )
     with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
         xlsx = f.name
@@ -2184,7 +2187,7 @@ def test_summary_coverage_no_price_at_all_branch():
         name="Charizard ex", edition="Surging Sparks", rarity="SIR",
         product_url="https://myp/r", myp_lowest_en_nm=80.0, tcg_player_price=200.0,
         tcg_real_usd=36.0, tcg_source="pokemontcg.io", myp_last_sale_brl=180.0,
-        margin_pct=1.5, margin_brl=120.0, en_nm_sellers=3, last_updated="2026-06-20",
+        margin_pct=0.6, margin_brl=120.0, en_nm_sellers=3, last_updated="2026-06-20",
     )
     with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
         xlsx = f.name
@@ -2376,7 +2379,7 @@ def test_summary_dual_flag_deal_single_bucket():
         name="Dualflag ex (290/217)", edition="Surging Sparks", rarity="Comum",
         product_url="https://myp/dual", myp_lowest_en_nm=60.0,
         tcg_player_price=1500.0, tcg_real_usd=None, tcg_source="myp_estat",
-        myp_last_sale_brl=20.0, margin_pct=24.0, margin_brl=1440.0,
+        myp_last_sale_brl=20.0, margin_pct=0.96, margin_brl=1440.0,
         en_nm_sellers=2, last_updated="2026-07-03", tcg_suspect=True,
     )
     assert dual.tcg_suspect and "(290/217)" in dual.name
@@ -2409,7 +2412,7 @@ def test_summary_pipe_in_name_escaped():
         name="Pika|chu ex (055/191)", edition="Surging|Sparks", rarity="Rara",
         product_url="https://myp/pipe", myp_lowest_en_nm=80.0,
         tcg_player_price=200.0, tcg_real_usd=40.0, tcg_source="pokemontcg.io",
-        myp_last_sale_brl=190.0, margin_pct=1.5, margin_brl=120.0,
+        myp_last_sale_brl=190.0, margin_pct=0.6, margin_brl=120.0,
         en_nm_sellers=3, last_updated="2026-07-03",
     )
     with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
@@ -2425,7 +2428,7 @@ def test_summary_pipe_in_name_escaped():
     assert "Pika\\|chu" in row, f"pipe do nome não escapado: {row}"
     assert "Surging\\|Sparks" in row, f"pipe da edição não escapado: {row}"
     # nº de colunas da linha = nº de colunas do header (linha não desalinhou)
-    header = next(ln for ln in text.splitlines() if ln.startswith("| # | Margem %"))
+    header = next(ln for ln in text.splitlines() if ln.startswith("| # | Margem venda %"))
     assert row.count("|") - row.count("\\|") == header.count("|"), \
         f"linha desalinhada ({row.count('|') - row.count('\\|')} pipes vs {header.count('|')}):\n{row}"
     Path(xlsx).unlink(); Path(md).unlink()
@@ -2743,7 +2746,7 @@ def test_scrape_product_variant_match_e2e():
     assert (card.match_status, card.tcg_product_id, card.tcg_source) == \
         ("VERIFIED", 610679, "tcgcsv"), card
     assert abs(card.tcg_real_usd - 73.07) < 1e-6 and card.myp_finish == "(vazio)", card
-    assert abs(card.margin_pct - (73.07 * 5.0 - 250.0) / 250.0) < 1e-9, card.margin_pct
+    assert abs(card.margin_pct - (73.07 * 5.0 - 250.0) / (73.07 * 5.0)) < 1e-9, card.margin_pct
 
     html = _variant_page("Umbreon Master Ball (059/131)", "900,00",
                          [("120,00", "Normal"), ("100,00", "Foil")])
@@ -2830,7 +2833,7 @@ def test_summary_review_bucket_keeps_canonical_table():
         md = f.name
     assert build_markdown(xlsx, md, scan_type="daily", run_id="", repo="x/y") == 0
     text = Path(md).read_text(encoding="utf-8")
-    assert "| # | Margem % | MYP R$ | TCG US$ | Dif | Carta | Set | Raridade | Cond | Qtd | Links |" \
+    assert "| # | Margem venda % | ROI aquisição % | MYP R$ | TCG US$ | Dif | Carta | Set | Raridade | Cond | Qtd | Links |" \
         in text, "tabela canônica dos limpos mudou"
     assert "limpos" in (_section_of(text, "Venusaur ex") or "").lower()
     sec = _section_of(text, "Umbreon Master Ball")

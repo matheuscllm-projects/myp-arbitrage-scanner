@@ -140,7 +140,7 @@ python myp_op_summary.py results/op_grupoN_<AAAA-MM-DD>.xlsx -o results/op_grupo
 
 ## Regras que este skill NÃO muda
 
-- Margem BRUTA base compra `(TCG_BRL − MYP_BRL)/MYP_BRL`, threshold 30
+- Margem SOBRE A VENDA `(TCG_BRL − MYP_BRL)/TCG_BRL` (ROI em coluna à parte, só informativo), threshold 30
   inteiro, piso `--min-price 50` (singles).
 - NM-only (célula de qualidade, token exato) + EN-only (flag-icon) —
   parser herdado do scanner Pokémon. Idioma é o risco nº 1 em One Piece

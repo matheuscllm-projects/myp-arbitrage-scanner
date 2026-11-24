@@ -224,7 +224,8 @@ def _apply_data_formats(ws, headers):
     """
     from openpyxl.styles import Font
     margin_cols = [i + 1 for i, h in enumerate(headers)
-                   if isinstance(h, str) and "margin" in h.lower()
+                   if isinstance(h, str) and ("margin" in h.lower() or "margem" in h.lower()
+                                              or "roi" in h.lower())
                    and "%" in h]
     price_cols = [i + 1 for i, h in enumerate(headers)
                   if isinstance(h, str) and "(r$)" in h.lower()]

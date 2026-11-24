@@ -171,7 +171,7 @@ def load_target_rows(xlsx_path: Path) -> list[dict]:
                 "url": url,
                 "myp_en_nm_brl": rec.get("MYP EN NM (R$)"),
                 "tcg_html_brl": rec.get("TCG Player (R$)"),
-                "margin": rec.get("Margin %"),
+                "margin": rec.get("Margem venda %"),
                 "source_sheet": sheet_name,
             }
     wb.close()
