@@ -10,7 +10,7 @@
 
 Scanner de arbitragem de singles Pokémon (EN, Near Mint): compara preços no
 **mypcards.com** (BR, R$) contra o preço real do **TCGplayer** (US$→R$) e lista
-deals com margem bruta ≥ 30%. Instruções para qualquer sessão Claude Code
+deals com margem sobre a venda ≥ 30%. Instruções para qualquer sessão Claude Code
 (local ou nuvem) que trabalhe neste repo: "rodar o MYP scanner" tem **um
 caminho só** — siga este arquivo e evite re-descobrir o que já está resolvido.
 
@@ -39,7 +39,7 @@ completo na seção 📤 lá embaixo. Contrato fleet-wide no `~/.claude/CLAUDE.m
 
 Invariantes que valem para TODOS os scanners:
 
-- **Margem BRUTA, mínimo 30%** — só `(revenda − compra)/compra`, sem nenhuma taxa embutida (frete, cartão, IOF — o operador calcula por fora).
+- **Margem SOBRE A VENDA, mínimo 30%** — `(revenda − compra)/revenda`, sem nenhuma taxa embutida (frete, cartão, IOF — o operador calcula por fora). Coluna "Margem venda %". ROI sobre a compra `(revenda − compra)/compra` vai na coluna separada "ROI aquisição %" e é só informativo (nunca filtra, classifica ou ordena). Fórmula única em `margin.py`. XLSX antigo com "Margin %" (era sobre a compra) é recusado com erro explícito — refaça o scan.
 - **Piso de relevância R$50 (~US$10) — SÓ para cartas avulsas (singles).** Produtos SELADOS não têm piso (decisão do operador, 2026-06-27); lá o único critério é a margem ≥30%.
 - **Só Near Mint** — condição por match EXATO `== "NM"`, nunca substring (já vazou SP).
 - **Nunca inventar preço** — fonte falhou → marca fallback/erro e segue; jamais fabrica número.
@@ -427,7 +427,7 @@ mão" — rode o script.**
   desambiguação por nome EN exato; sem código → grupo+nome exato. Ambíguo/
   sem match → aba **"Sem Ref TCG"** com motivo (nunca margem inventada; sem
   fallback `.estat-tcg` — decisão v1).
-- **Convenções:** margem BRUTA base compra `(TCG_BRL − MYP_BRL)/MYP_BRL`;
+- **Convenções:** margem SOBRE A VENDA `(TCG_BRL − MYP_BRL)/TCG_BRL` (+ coluna ROI aquisição %);
   `--threshold` percent INTEIRO (30); piso R$50; NM/EN herdados; guardas da
   frota: oferta <50% da ref = flag **possível lixo**, market vs menor
   anúncio TCG >2× = flag **ref volátil** — ambos rebaixam pra REVISAR na
@@ -489,7 +489,7 @@ mão" — rode o script.**
   OP17-001); quem marca variante é o qualificador do h1. Ambíguo/sem
   match → aba **"Sem Ref TCG"** com motivo (nunca margem inventada; sem
   fallback `.estat-tcg` — decisão v1, igual ao DBZ).
-- **Convenções:** margem BRUTA base compra `(TCG_BRL − MYP_BRL)/MYP_BRL`;
+- **Convenções:** margem SOBRE A VENDA `(TCG_BRL − MYP_BRL)/TCG_BRL` (+ coluna ROI aquisição %);
   `--threshold` percent INTEIRO (30); piso R$50; NM/EN herdados (idioma é
   o risco nº 1 em One Piece — lição do op_scanner do card-trader; o filtro
   EN herdado é o guard); guardas da frota: oferta <50% da ref = flag
@@ -592,7 +592,7 @@ experimental/              protótipos exploratórios, não-produção (ev_scann
 ```
 
 > ⚠️ **Pegadinha do `myp_aggregate.py`:** o `--threshold` dele é **FRAÇÃO**
-> (default `0.30` = 30%, classifica/colore as sheets do consolidado) —
+> (default `0.30` = 30% da venda, classifica/colore as sheets do consolidado) —
 > convenção **OPOSTA** à do scanner (percent inteiro `30`). Os workflows já
 > passam o valor certo; se for rodar à mão, releia isto antes.
 

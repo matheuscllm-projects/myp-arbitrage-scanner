@@ -216,7 +216,7 @@ def _style_header(ws, headers, fill="4472C4"):
 
 def _apply_data_formats(ws, headers):
     """v5.8.6 bug #5: apply Excel number_format to columns whose header
-    semantics imply a format (Margin → 0.00%, R$ prices → #,##0.00).
+    semantics imply a format (Margem venda %/ROI aquisição % → 0.00%, R$ prices → #,##0.00).
     v5.8.6 bug #1 follow-up: also re-attach Card Name hyperlinks using
     the URL column, since `ws.append(values_only_row)` strips hyperlink
     metadata. Without this, running revalidate on a hyperlinked XLSX
@@ -224,7 +224,8 @@ def _apply_data_formats(ws, headers):
     """
     from openpyxl.styles import Font
     margin_cols = [i + 1 for i, h in enumerate(headers)
-                   if isinstance(h, str) and "margin" in h.lower()
+                   if isinstance(h, str) and ("margin" in h.lower() or "margem" in h.lower()
+                                              or "roi" in h.lower())
                    and "%" in h]
     price_cols = [i + 1 for i, h in enumerate(headers)
                   if isinstance(h, str) and "(r$)" in h.lower()]

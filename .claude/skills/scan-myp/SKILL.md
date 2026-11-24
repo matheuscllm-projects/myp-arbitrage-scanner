@@ -135,7 +135,7 @@ python myp_summary.py results/grupoN_<AAAA-MM-DD>.xlsx --type daily -o results/g
 
 ## Regras que este skill NÃO muda
 
-- Margem BRUTA, threshold 30 inteiro, piso `--min-price 50` (piso vale só
+- Margem SOBRE A VENDA `(ref − compra)/ref` (ROI em coluna à parte, só informativo), threshold 30 inteiro, piso `--min-price 50` (piso vale só
   para CARTAS; produtos selados não têm piso — selados são do repo
   sealed-scanner, fora do escopo do MYP).
 - Honestidade de preço: real (`tcgcsv`/`pokemontcg.io`) vs fallback

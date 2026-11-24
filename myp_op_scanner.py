@@ -47,11 +47,11 @@ Fatos de estrutura provados pela sonda (não re-descobrir):
     em One Piece).
 
 Fluxo: menor oferta EN NM ao vivo no MYP  vs  market price TCGplayer (USD →
-BRL com câmbio ao vivo). Margem BRUTA base compra. Entrega via
+BRL com câmbio ao vivo). Margem SOBRE A VENDA (ROI à parte). Entrega via
 `myp_op_summary.py` (verbatim — contrato de entrega do repo).
 
 Invariantes (frota + convenções DESTE repo):
-  • Margem BRUTA: (TCG_BRL − MYP_BRL) / MYP_BRL — sem nenhuma taxa embutida.
+  • Margem sobre a VENDA: (TCG_BRL − MYP_BRL) / TCG_BRL — sem nenhuma taxa embutida.
   • `--threshold` em PERCENT INTEIRO (30 = 30%) — convenção MYP/Liga/eBay.
   • Piso de relevância R$50 (singles): `--min-price 50`.
   • Só Near Mint (célula dedicada, token exato "NM") e só EN (flag-icon
@@ -128,6 +128,8 @@ from myp_dbz_scanner import (
     split_myp_title,
 )
 
+from margin import COL_MARGEM, COL_ROI, margem_passa, margem_venda, roi
+
 OP_VERSION = "v1.0"
 
 # Seção One Piece do MYP ↔ categoria tcgcsv (sonda 2026-08-09, PR #98).
@@ -137,13 +139,13 @@ SECTION_LABELS = {OP_SECTION: "One Piece"}
 
 TCGCSV_OP_BASE = "https://tcgcsv.com/tcgplayer"
 
-MARGIN_THRESHOLD_OP = 0.30   # 30% margem BRUTA mínima (fração interna)
+MARGIN_THRESHOLD_OP = 0.30   # 30% margem mínima SOBRE A VENDA (fração interna)
 MIN_PRICE_BRL_OP = 50.0      # piso canônico de singles da frota
 # Guardas da frota (mesmos valores do dbs/op scanner do CardTrader):
 JUNK_RATIO = 0.5             # MYP < 50% da ref = possível lixo/scam → REVISAR
 VOLATILE_REF_RATIO = 2.0     # market vs menor anúncio TCG >2× → REVISAR
 
-OP_CHECKPOINT_VERSION = 1
+OP_CHECKPOINT_VERSION = 2  # v2: margem sobre a VENDA (checkpoint v1 tinha margem sobre a compra)
 
 # Campo "Código" da página de produto One Piece (sonda 2026-08-09):
 #   "one_op17_op17-001"    (edição + código da carta)
@@ -481,7 +483,8 @@ class OpCardData:
     rarity: str = ""                      # Rarity do tcgcsv (não a do MYP)
     subtype: str = ""                     # Normal | Foil (subtipo usado)
     join_via: str = ""
-    margin_pct: Optional[float] = None    # FRAÇÃO (0.42 = 42%)
+    margin_pct: Optional[float] = None    # margem sobre a VENDA, FRAÇÃO (0.42 = 42%)
+    roi_pct: Optional[float] = None       # ROI sobre a compra — só informativo
     margin_brl: Optional[float] = None
     flag_lixo: bool = False               # MYP < 50% da ref → REVISAR
     flag_ref_volatil: bool = False        # market vs low >2× → REVISAR
@@ -771,7 +774,8 @@ class MYPOpScraper(MYPScraper):
             tcg_product_name=entry["name"], tcg_url=entry["url"],
             rarity=entry["rarity"], subtype=subtype, join_via=join_label,
             margin_brl=tcg_brl - lowest_en,
-            margin_pct=(tcg_brl - lowest_en) / lowest_en,
+            margin_pct=margem_venda(tcg_brl, lowest_en),
+            roi_pct=roi(tcg_brl, lowest_en),
             flag_lixo=lowest_en < JUNK_RATIO * tcg_brl,
             flag_ref_volatil=ref_volatile(tcg_usd, tcg_low),
             last_updated=datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -900,8 +904,7 @@ class MYPOpScraper(MYPScraper):
                     self.semref.append(result)
                     continue
                 self.op_cards.append(result)
-                if result.margin_pct is not None and \
-                        result.margin_pct >= self.margin_threshold:
+                if margem_passa(result.margin_pct, self.margin_threshold):
                     log.info(f"  🔥 DEAL: {result.name} | "
                              f"MYP R${result.myp_lowest_en_nm:,.2f} | "
                              f"TCG R${result.tcg_brl:,.2f} | "
@@ -911,7 +914,7 @@ class MYPOpScraper(MYPScraper):
                 self._save_op_checkpoint(checkpoint_path, done)
 
         deals = [c for c in self.op_cards
-                 if c.margin_pct and c.margin_pct >= self.margin_threshold]
+                 if margem_passa(c.margin_pct, self.margin_threshold)]
         log.info("\n" + "═" * 60)
         log.info(f"  Produtos escaneados: {self._stats['products_scanned']}")
         log.info(f"  Cards EN NM ≥ piso: {len(self.op_cards) + len(self.semref)}")
@@ -940,9 +943,9 @@ class MYPOpScraper(MYPScraper):
 OP_HEADERS = [
     "Card Name", "EN Name", "Código", "Edition", "Seção", "Rarity",
     "MYP EN NM (R$)", "TCG US$", "TCG Low US$", "TCG Player (R$)",
-    "TCG Source", "Subtipo", "Margin %", "Diff (R$)", "NM Sellers",
+    "TCG Source", "Subtipo", COL_MARGEM, "Diff (R$)", "NM Sellers",
     "⚠️ EN Trunc", "⚠️ 1 Seller", "⚠️ Possível Lixo", "⚠️ Ref Volátil",
-    "Join", "URL", "Updated", "TCG URL",
+    "Join", "URL", "Updated", "TCG URL", COL_ROI,
 ]
 OP_SEMREF_HEADERS = [
     "Card Name", "EN Name", "Código", "Edition", "Seção",
@@ -984,8 +987,9 @@ def generate_op_xlsx(cards: list[OpCardData], semref: list[OpSemRefRow],
     ws.title = "All EN Cards"
     write_headers(ws, OP_HEADERS,
                   [34, 30, 11, 28, 12, 16, 14, 11, 11, 14, 10, 10, 10, 12,
-                   10, 10, 10, 12, 12, 26, 55, 16, 55])
-    margin_col = OP_HEADERS.index("Margin %") + 1
+                   10, 10, 10, 12, 12, 26, 55, 16, 55, 14])
+    margin_col = OP_HEADERS.index(COL_MARGEM) + 1
+    roi_col = OP_HEADERS.index(COL_ROI) + 1
     for row, c in enumerate(
             sorted(cards, key=lambda x: -(x.margin_pct or -999)), start=2):
         vals = [
@@ -999,15 +1003,18 @@ def generate_op_xlsx(cards: list[OpCardData], semref: list[OpSemRefRow],
             "⚠️ LIXO?" if c.flag_lixo else "",
             "⚠️ VOLÁTIL" if c.flag_ref_volatil else "",
             c.join_via, c.product_url, c.last_updated, c.tcg_url,
+            c.roi_pct,
         ]
         for col, v in enumerate(vals, 1):
             cell = ws.cell(row=row, column=col, value=v)
             cell.font = normal
+            if col == roi_col and v is not None:
+                cell.number_format = "0.00%"   # informativo
             if col == margin_col and v is not None:
                 cell.number_format = "0.00%"
-                if v >= 0.50:
+                if margem_passa(v, 0.50):
                     cell.fill = green_fill
-                elif v >= threshold:
+                elif margem_passa(v, threshold):
                     cell.fill = yellow_fill
 
     # ── Sem Ref TCG ──
@@ -1022,7 +1029,7 @@ def generate_op_xlsx(cards: list[OpCardData], semref: list[OpSemRefRow],
 
     # ── Summary ──
     ws3 = wb.create_sheet("Summary")
-    deals = [c for c in cards if c.margin_pct and c.margin_pct >= threshold]
+    deals = [c for c in cards if margem_passa(c.margin_pct, threshold)]
     pairs = [
         ("Scanner", f"myp_op_scanner {OP_VERSION} (One Piece)"),
         ("Scan Date", datetime.now().strftime("%Y-%m-%d %H:%M")),
@@ -1065,7 +1072,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                     help="substrings de título/código de edição MYP (default: "
                          "TODAS as 65 edições da seção)")
     ap.add_argument("--threshold", type=float, default=30.0,
-                    help="margem BRUTA mínima em PERCENT INTEIRO (30 = 30%%; "
+                    help="margem mínima SOBRE A VENDA em PERCENT INTEIRO (30 = 30%%; "
                          "convenção MYP — CardTrader usa fração)")
     ap.add_argument("--min-price", type=float, default=MIN_PRICE_BRL_OP,
                     help="piso de relevância em R$ (default 50 — canônico)")

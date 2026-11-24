@@ -41,6 +41,7 @@ from openpyxl import load_workbook
 
 # Reusa CardData + generate_xlsx do scanner (single source of truth)
 from myp_arbitrage_scanner import CardData, generate_xlsx
+from margin import COL_MARGEM, COL_ROI, require_new_margin
 
 logging.basicConfig(
     level=logging.INFO,
@@ -99,7 +100,8 @@ def card_from_row(headers: list[str], row: tuple) -> CardData | None:
     # como deal #1. .get() retorna None se chunk antigo não tem essas colunas.
     card.myp_last_sale_brl = rec.get("MYP Last Sale (R$)")
     card.tcg_suspect = bool(rec.get("⚠️ TCG Suspect"))
-    card.margin_pct = rec.get("Margin %")
+    card.margin_pct = rec.get(COL_MARGEM)
+    card.roi_pct = rec.get(COL_ROI)
     # Diff é calculado em generate_xlsx, não precisamos preservar
     card.en_nm_sellers = rec.get("NM Sellers") or 0
     card.en_truncation_risk = bool(rec.get("⚠️ EN Trunc"))
@@ -151,6 +153,7 @@ def load_chunk_cards(xlsx_path: Path) -> list[CardData]:
         if not rows:
             return cards
         headers = list(rows[0])
+        require_new_margin(headers)
         for r in rows[1:]:
             card = card_from_row(headers, r)
             if card:
@@ -197,7 +200,11 @@ def main() -> int:
 
     all_cards: list[CardData] = []
     for p in paths:
-        chunk_cards = load_chunk_cards(p)
+        try:
+            chunk_cards = load_chunk_cards(p)
+        except ValueError as e:  # chunk em formato antigo: recusa explícita, sem traceback
+            log.error(f"Chunk recusado: {p} — {e}")
+            return 1
         log.info(f"  {p.name}: {len(chunk_cards)} cards")
         all_cards.extend(chunk_cards)
 

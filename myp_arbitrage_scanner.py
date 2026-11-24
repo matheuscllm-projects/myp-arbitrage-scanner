@@ -61,6 +61,7 @@ Changelog v5.3 (2026-05-12 — após caso Psyduck/bartsimpson):
 # NameError em qualquer setup que tenha cloudscraper (todos os production runs).
 import os
 import requests
+from margin import COL_MARGEM, COL_ROI, margem_passa, margem_venda, roi
 try:
     import cloudscraper
     HAS_CLOUDSCRAPER = True
@@ -89,7 +90,7 @@ log = logging.getLogger(__name__)
 # CONFIG
 # ══════════════════════════════════════════════════════════════════════
 BASE_URL = "https://mypcards.com"
-MARGIN_THRESHOLD = 0.30          # v5.10: 30% margem BRUTA mínima para alerta (era 0.25). Política cross-scanner 2026-06-06: 30% margem bruta = só (preço_alvo − preço_BR)/preço_BR, SEM taxa embutida; operador calcula custos por fora.
+MARGIN_THRESHOLD = 0.30          # 30% de MARGEM SOBRE A VENDA mínima p/ alerta: (ref − compra)/ref, SEM taxa embutida (operador calcula custos por fora). Mesmo número de antes, agora sobre a venda. ROI (sobre a compra) é coluna à parte, informativo.
 MIN_PRICE_BRL = 50.0             # piso padrão cross-scanner: "carta valiosa" = > R$50 (ignora cartas baratas)
 REQUEST_DELAY = 1.5              # segundos entre requests
 MAX_PAGES_PER_EDITION = 30       # max páginas por edição
@@ -104,7 +105,7 @@ MIN_EDITIONS_EXPECTED = 200      # v5.4 C2: catalog scrape sanity floor (~326 es
 # inatividade e mata o processo — mas o disco sobrevive. Salvando o progresso por
 # edição (cards + edições já feitas) num sidecar `<output>.resume.json`, um
 # `--resume` retoma de onde parou em vez de perder horas de scan.
-CHECKPOINT_VERSION = 2
+CHECKPOINT_VERSION = 3  # v3: margem sobre a VENDA
 
 
 class ScanInterrupted(RuntimeError):
@@ -908,7 +909,8 @@ class CardData:
     # Capturar última venda real do MYP pra sanity check.
     myp_last_sale_brl: Optional[float] = None
     tcg_suspect: bool = False                    # True se TCG declarado >> última venda real
-    margin_pct: Optional[float] = None
+    margin_pct: Optional[float] = None   # margem sobre a VENDA (fração); margin.py
+    roi_pct: Optional[float] = None      # ROI sobre a compra (fração) — só informativo
     margin_brl: Optional[float] = None
     en_nm_sellers: int = 0                      # qtd vendedores EN NM
     en_truncation_risk: bool = False            # 2026-05-12: alguma seller table está no cap (15/20) sem EN visível → EN possivelmente escondido
@@ -2119,7 +2121,7 @@ class MYPScraper:
         truncation_risk = False
         max_seller_page = self._max_seller_page(soup)
         # v5.10.1 (2026-06-07): cost gate. Um card só vira deal se MYP-EN ≥
-        # min_price E margem ≥ threshold ⟹ TCG ≥ (1+threshold)·min_price >
+        # min_price E margem ≥ threshold ⟹ TCG ≥ min_price/(1−threshold) >
         # min_price. Logo, se TCG < min_price o card NUNCA é deal e seria
         # filtrado adiante de qualquer forma — paginar pra resolver truncation
         # aqui é puro desperdício (medido: ~85% das paginações caíam em commons
@@ -2339,7 +2341,8 @@ class MYPScraper:
         # custo aqui (oposto do CardTrader scanner, que usa custo = preço × 1.06).
         if card.myp_lowest_en_nm and card.tcg_player_price and card.myp_lowest_en_nm > 0:
             card.margin_brl = card.tcg_player_price - card.myp_lowest_en_nm
-            card.margin_pct = card.margin_brl / card.myp_lowest_en_nm
+            card.margin_pct = margem_venda(card.tcg_player_price, card.myp_lowest_en_nm)
+            card.roi_pct = roi(card.tcg_player_price, card.myp_lowest_en_nm)
 
         # H3 fix (2026-05-12, refinado 2026-05-12 v5.3): heurística SIR/HR/SAR/IR misclassificado.
         # Bug documentado: cards supranumeráros (#>set_total) aparecem como rarity="Comum"
@@ -2606,7 +2609,7 @@ class MYPScraper:
                 if checkpoint_path and (j == 0 or (j + 1) % 10 == 0):
                     self._save_checkpoint(checkpoint_path, done_editions)
 
-                if card.margin_pct is not None and card.margin_pct >= self.margin_threshold:
+                if margem_passa(card.margin_pct, self.margin_threshold):
                     log.info(
                         f"  🔥 DEAL: {card.name} | "
                         f"EN NM lowest: R${card.myp_lowest_en_nm:,.2f} | "
@@ -2630,7 +2633,7 @@ class MYPScraper:
                 self._save_checkpoint(checkpoint_path, done_editions)
 
         # Summary
-        deals = [c for c in self.cards if c.margin_pct and c.margin_pct >= self.margin_threshold]
+        deals = [c for c in self.cards if margem_passa(c.margin_pct, self.margin_threshold)]
         log.info("\n" + "═" * 60)
         log.info(f"  Pages fetched: {self._stats['pages_fetched']}")
         log.info(f"  Products scanned: {self._stats['products_scanned']}")
@@ -2717,7 +2720,7 @@ def generate_xlsx(cards: list[CardData], output_path: str, threshold: float):
     HYPERLINK_FONT = Font(name="Arial", size=10, color="0563C1", underline="single")
 
     # v5.8 (2026-05-16): 2 colunas novas pra surfaçar o sanity check H2:
-    #   - "MYP Last Sale (R$)" entre TCG Player e Margin %
+    #   - "MYP Last Sale (R$)" entre TCG Player e Margem venda %
     #   - "⚠️ TCG Suspect" depois de EN Trunc
     # Sem isso, o operador via Jirachi PR-SM_SM161 como deal #1 a 1400% mesmo
     # com TCG inflado 75x vs última venda real. Aggregate lê via dict-by-name,
@@ -2747,7 +2750,7 @@ def generate_xlsx(cards: list[CardData], output_path: str, threshold: float):
     headers = [
         "Card Name", "Edition", "Rarity",
         "MYP EN NM (R$)", "TCG Player (R$)", "TCG US$", "TCG Source", "MYP Last Sale (R$)",
-        "Margin %", "Diff (R$)", "NM Sellers",
+        COL_MARGEM, "Diff (R$)", "NM Sellers",
         "⚠️ EN Trunc", "⚠️ TCG Suspect", "⚠️ Single Seller", "⚠️ COLLECTOR#",
         "URL", "Updated", "TCG URL",
         # v5.20 (pendencias#10): identidade do produto TCGplayer da referência.
@@ -2756,14 +2759,16 @@ def generate_xlsx(cards: list[CardData], output_path: str, threshold: float):
         # contrato, travada em teste).
         "MYP Finish", "TCG Finish", "TCG Product ID", "TCG Product Name",
         "Match Status", "Match Reason",
+        COL_ROI,   # informativo; no fim p/ não deslocar as colunas por posição
     ]
     widths = [38, 32, 16, 16, 16, 12, 14, 17, 11, 13, 10, 11, 14, 14, 14, 55, 16, 55,
-              14, 16, 14, 40, 13, 70]
+              14, 16, 14, 40, 13, 70, 14]
     PRICE_COLS = {4, 5, 8, 10}      # MYP EN NM, TCG Player, Last Sale, Diff
     MYP_PRICE_COL = 4               # v5.8.8: hyperlink → página produto MYP
     TCG_PRICE_COL = 5               # v5.8.8: hyperlink → busca TCGplayer por nome
     TCG_SOURCE_COL = 7              # v5.14: fonte do preço (real/fallback)
     MARGIN_COL = 9
+    ROI_COL = headers.index(COL_ROI) + 1   # informativo, no fim (derivado do cabeçalho)
     EN_TRUNC_COL = 12
     TCG_SUSPECT_COL = 13
     SINGLE_SELLER_COL = 14
@@ -2826,6 +2831,7 @@ def generate_xlsx(cards: list[CardData], output_path: str, threshold: float):
             tcg_link or "",  # v5.11.2: "TCG URL" texto plano (mesmo link do hyperlink)
             card.myp_finish, card.tcg_finish, card.tcg_product_id,
             card.tcg_product_name, card.match_status, card.match_reason,
+            card.roi_pct,
         ]
         USD_COL = 6  # v5.11.1: "TCG US$" — formato USD, não BRL
         for col, v in enumerate(vals, 1):
@@ -2845,16 +2851,18 @@ def generate_xlsx(cards: list[CardData], output_path: str, threshold: float):
             if col == MARGIN_COL:
                 # v5.8.6 bug #5: standardize on 2-decimal % across the
                 # pipeline (revalidate_deals.py also uses "0.00%"). Header
-                # is "Margin %" — value is stored as fraction (e.g. 0.483)
+                # is "Margem venda %" — value is stored as fraction (e.g. 0.483)
                 # so format must render as percentage to match semantics.
                 c.number_format = '0.00%'
-                if v and v >= 0.50:
+                if margem_passa(v, 0.50):
                     c.font = bold_green
                     c.fill = green_fill
-                elif v and v >= threshold:
+                elif margem_passa(v, threshold):
                     c.fill = yellow_fill
                 elif v and v < 0:
                     c.fill = red_fill
+            if col == ROI_COL:
+                c.number_format = '0.00%'
             if col == TCG_SOURCE_COL and card.tcg_source not in ("pokemontcg.io", "tcgcsv"):
                 # v5.15: só FALLBACK (.estat-tcg) é destacado em amarelo — as duas
                 # rotas REAIS (pokemontcg.io / tcgcsv) ficam sem destaque.
@@ -2902,14 +2910,14 @@ def generate_xlsx(cards: list[CardData], output_path: str, threshold: float):
         )
     deals = sorted(
         [c for c in cards
-         if c.margin_pct and c.margin_pct >= threshold
+         if margem_passa(c.margin_pct, threshold)
          and not c.tcg_suspect
          and not _combined_single_seller_risk(c)],
         key=lambda x: x.margin_pct or 0, reverse=True,
     )
     for i, card in enumerate(deals, 2):
         write_card_row(ws1, i, card)
-        if card.margin_pct and card.margin_pct >= 0.50:
+        if margem_passa(card.margin_pct, 0.50):
             for col in range(1, 4):
                 ws1.cell(row=i, column=col).fill = green_fill
 
@@ -3035,9 +3043,9 @@ Exemplos:
     parser.add_argument("--max-products", type=int, default=0,
                        help="Limite de produtos por edição (0 = todos)")
     parser.add_argument("--threshold", type=float, default=30,
-                       help="Margem BRUTA mínima %% para alerta (default: 30). "
+                       help="Margem mínima SOBRE A VENDA %% para alerta (default: 30). "
                             "Percent integer (30 = 30%%); valor <1.0 auto-converte. "
-                            "Margem bruta = (preço_alvo TCG − preço_BR)/preço_BR, SEM taxa embutida.")
+                            "Margem = (preço_alvo TCG − preço_BR)/preço_alvo, SEM taxa embutida; ROI sobre a compra é só informativo.")
     parser.add_argument("--min-price", type=float, default=50,
                        help="Preço mínimo EN em R$ (default: 50)")
     parser.add_argument("--delay", type=float, default=1.5,

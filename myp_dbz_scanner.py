@@ -32,11 +32,11 @@ Fatos de estrutura provados pela sonda (não re-descobrir):
     de sellers NM/EN é herdado do MYPScraper.
 
 Fluxo: menor oferta EN NM ao vivo no MYP  vs  market price TCGplayer (USD →
-BRL com câmbio ao vivo). Margem BRUTA base compra. Entrega via
+BRL com câmbio ao vivo). Margem SOBRE A VENDA (ROI à parte). Entrega via
 `myp_dbz_summary.py` (verbatim — contrato de entrega do repo).
 
 Invariantes (frota + convenções DESTE repo):
-  • Margem BRUTA: (TCG_BRL − MYP_BRL) / MYP_BRL — sem nenhuma taxa embutida.
+  • Margem sobre a VENDA: (TCG_BRL − MYP_BRL) / TCG_BRL — sem nenhuma taxa embutida.
   • `--threshold` em PERCENT INTEIRO (30 = 30%) — convenção MYP/Liga/eBay;
     valor < 1.0 é tratado como fração com warning (mesmo guard do Pokémon).
   • Piso de relevância R$50 (singles): `--min-price 50`.
@@ -96,6 +96,7 @@ from myp_arbitrage_scanner import (
     fetch_usd_brl,
     log,
 )
+from margin import COL_MARGEM, COL_ROI, margem_passa, margem_venda, roi
 
 DBZ_VERSION = "v1.1"
 
@@ -113,13 +114,13 @@ TCGCSV_DBZ_USER_AGENT = (
     "(+github.com/matheuscllm-lgtm/myp-arbitrage-scanner)"
 )
 
-MARGIN_THRESHOLD_DBZ = 0.30   # 30% margem BRUTA mínima (fração interna)
+MARGIN_THRESHOLD_DBZ = 0.30   # 30% margem mínima SOBRE A VENDA (fração interna)
 MIN_PRICE_BRL_DBZ = 50.0      # piso canônico de singles da frota
 # Guardas da frota (mesmos valores do dbs_scanner do CardTrader):
 JUNK_RATIO = 0.5              # MYP < 50% da ref = possível lixo/scam → REVISAR
 VOLATILE_REF_RATIO = 2.0      # market vs menor anúncio TCG divergindo >2× → REVISAR
 
-DBZ_CHECKPOINT_VERSION = 1
+DBZ_CHECKPOINT_VERSION = 2  # v2: margem sobre a VENDA (checkpoint v1 tinha margem sobre a compra)
 
 # Código de carta DBZ: prefixo alfa (+dígitos de set) + hífen + número
 # (+ sufixo de letra). Ex.: FB01-001, FS06-15, BT31-055, P-001, EX23-01.
@@ -641,7 +642,8 @@ class DbzCardData:
     rarity: str = ""                      # Rarity do tcgcsv (não a do MYP)
     subtype: str = ""                     # Normal | Foil (subtipo usado)
     join_via: str = ""
-    margin_pct: Optional[float] = None    # FRAÇÃO (0.42 = 42%)
+    margin_pct: Optional[float] = None    # margem sobre a VENDA, FRAÇÃO (0.42 = 42%)
+    roi_pct: Optional[float] = None       # ROI sobre a compra — só informativo
     margin_brl: Optional[float] = None
     flag_lixo: bool = False               # MYP < 50% da ref → REVISAR
     flag_ref_volatil: bool = False        # market vs low >2× → REVISAR
@@ -943,7 +945,8 @@ class MYPDbzScraper(MYPScraper):
             tcg_product_name=entry["name"], tcg_url=entry["url"],
             rarity=entry["rarity"], subtype=subtype, join_via=join_label,
             margin_brl=tcg_brl - lowest_en,
-            margin_pct=(tcg_brl - lowest_en) / lowest_en,
+            margin_pct=margem_venda(tcg_brl, lowest_en),
+            roi_pct=roi(tcg_brl, lowest_en),
             flag_lixo=lowest_en < JUNK_RATIO * tcg_brl,
             flag_ref_volatil=ref_volatile(tcg_usd, tcg_low),
             last_updated=datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -1085,8 +1088,7 @@ class MYPDbzScraper(MYPScraper):
                     self.semref.append(result)
                     continue
                 self.dbz_cards.append(result)
-                if result.margin_pct is not None and \
-                        result.margin_pct >= self.margin_threshold:
+                if margem_passa(result.margin_pct, self.margin_threshold):
                     log.info(f"  🔥 DEAL: {result.name} | "
                              f"MYP R${result.myp_lowest_en_nm:,.2f} | "
                              f"TCG R${result.tcg_brl:,.2f} | "
@@ -1096,7 +1098,7 @@ class MYPDbzScraper(MYPScraper):
                 self._save_dbz_checkpoint(checkpoint_path, done)
 
         deals = [c for c in self.dbz_cards
-                 if c.margin_pct and c.margin_pct >= self.margin_threshold]
+                 if margem_passa(c.margin_pct, self.margin_threshold)]
         log.info("\n" + "═" * 60)
         log.info(f"  Produtos escaneados: {self._stats['products_scanned']}")
         log.info(f"  Cards EN NM ≥ piso: {len(self.dbz_cards) + len(self.semref)}")
@@ -1125,9 +1127,9 @@ class MYPDbzScraper(MYPScraper):
 DBZ_HEADERS = [
     "Card Name", "EN Name", "Código", "Edition", "Seção", "Rarity",
     "MYP EN NM (R$)", "TCG US$", "TCG Low US$", "TCG Player (R$)",
-    "TCG Source", "Subtipo", "Margin %", "Diff (R$)", "NM Sellers",
+    "TCG Source", "Subtipo", COL_MARGEM, "Diff (R$)", "NM Sellers",
     "⚠️ EN Trunc", "⚠️ 1 Seller", "⚠️ Possível Lixo", "⚠️ Ref Volátil",
-    "Join", "URL", "Updated", "TCG URL",
+    "Join", "URL", "Updated", "TCG URL", COL_ROI,
 ]
 SEMREF_HEADERS = [
     "Card Name", "EN Name", "Código", "Edition", "Seção",
@@ -1169,8 +1171,9 @@ def generate_dbz_xlsx(cards: list[DbzCardData], semref: list[SemRefRow],
     ws.title = "All EN Cards"
     write_headers(ws, DBZ_HEADERS,
                   [34, 30, 11, 28, 12, 16, 14, 11, 11, 14, 10, 10, 10, 12,
-                   10, 10, 10, 12, 12, 26, 55, 16, 55])
-    margin_col = DBZ_HEADERS.index("Margin %") + 1
+                   10, 10, 10, 12, 12, 26, 55, 16, 55, 14])
+    margin_col = DBZ_HEADERS.index(COL_MARGEM) + 1
+    roi_col = DBZ_HEADERS.index(COL_ROI) + 1
     for row, c in enumerate(
             sorted(cards, key=lambda x: -(x.margin_pct or -999)), start=2):
         vals = [
@@ -1184,15 +1187,18 @@ def generate_dbz_xlsx(cards: list[DbzCardData], semref: list[SemRefRow],
             "⚠️ LIXO?" if c.flag_lixo else "",
             "⚠️ VOLÁTIL" if c.flag_ref_volatil else "",
             c.join_via, c.product_url, c.last_updated, c.tcg_url,
+            c.roi_pct,
         ]
         for col, v in enumerate(vals, 1):
             cell = ws.cell(row=row, column=col, value=v)
             cell.font = normal
+            if col == roi_col and v is not None:
+                cell.number_format = "0.00%"   # informativo
             if col == margin_col and v is not None:
                 cell.number_format = "0.00%"
-                if v >= 0.50:
+                if margem_passa(v, 0.50):
                     cell.fill = green_fill
-                elif v >= threshold:
+                elif margem_passa(v, threshold):
                     cell.fill = yellow_fill
 
     # ── Sem Ref TCG ──
@@ -1207,7 +1213,7 @@ def generate_dbz_xlsx(cards: list[DbzCardData], semref: list[SemRefRow],
 
     # ── Summary ──
     ws3 = wb.create_sheet("Summary")
-    deals = [c for c in cards if c.margin_pct and c.margin_pct >= threshold]
+    deals = [c for c in cards if margem_passa(c.margin_pct, threshold)]
     pairs = [
         ("Scanner", f"myp_dbz_scanner {DBZ_VERSION} (Dragon Ball)"),
         ("Scan Date", datetime.now().strftime("%Y-%m-%d %H:%M")),
@@ -1253,7 +1259,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                     choices=[s for s, _ in GAME_SECTIONS],
                     help="dbsfusion e/ou dbsmasters (default: ambas)")
     ap.add_argument("--threshold", type=float, default=30.0,
-                    help="margem BRUTA mínima em PERCENT INTEIRO (30 = 30%%; "
+                    help="margem mínima SOBRE A VENDA em PERCENT INTEIRO (30 = 30%%; "
                          "convenção MYP — CardTrader usa fração)")
     ap.add_argument("--min-price", type=float, default=MIN_PRICE_BRL_DBZ,
                     help="piso de relevância em R$ (default 50 — canônico)")
