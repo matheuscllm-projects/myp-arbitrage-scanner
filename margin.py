@@ -25,9 +25,13 @@ def roi(ref, compra) -> Optional[float]:
     return (ref - compra) / compra if _ok(ref, compra) else None
 
 
-def passa_corte(ref, compra, corte: float) -> bool:
-    m = margem_venda(ref, compra)
+def margem_passa(m, corte: float) -> bool:
+    """Ponto único do corte (>=), com tolerância p/ float: 30% exato (ex.: 72,10/50,47) entra."""
     return m is not None and m >= corte - 1e-9
+
+
+def passa_corte(ref, compra, corte: float) -> bool:
+    return margem_passa(margem_venda(ref, compra), corte)
 
 
 def require_new_margin(headers) -> None:

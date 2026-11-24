@@ -23,7 +23,7 @@ Uso:
 from __future__ import annotations
 
 from chat_format import reference_price
-from margin import COL_MARGEM, COL_ROI, require_new_margin
+from margin import COL_MARGEM, COL_ROI, margem_passa, require_new_margin
 
 import argparse
 import sys
@@ -168,7 +168,7 @@ def build_markdown(xlsx: str, output: str, run_id: str = "",
         except (TypeError, ValueError):
             return 0.0
 
-    deals = sorted((c for c in all_cards if margin(c) >= deal_floor),
+    deals = sorted((c for c in all_cards if margem_passa(margin(c), deal_floor)),
                    key=margin, reverse=True)
     deals_clean = [c for c in deals if not row_flags(c)]
     deals_review = [c for c in deals if row_flags(c)]

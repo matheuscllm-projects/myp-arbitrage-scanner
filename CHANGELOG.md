@@ -1,5 +1,20 @@
 # Changelog
 
+## Margem sobre a VENDA + ROI em coluna separada (2026-11-24)
+
+**BASE DA MARGEM MUDOU — relatórios antigos e novos NÃO são comparáveis.**
+Antes: `Margin %` = `(ref − compra)/compra` (sobre a compra, na prática um ROI).
+Agora: `Margem venda %` = `(ref − compra)/ref`; o ROI `(ref − compra)/compra`
+vai em `ROI aquisição %` (informativo — nunca filtra, classifica nem ordena).
+O corte segue com o MESMO número (`--threshold 30` = 30% da venda; equivale a
+ROI ≥ 42,86%), então vão sobrar menos deals que antes. Valem para os scanners
+Pokémon, DBZ e OP. Fórmula e corte (com tolerância de float) em `margin.py`.
+
+- XLSX com `Margin %` (formato antigo) é RECUSADO por aggregate/summaries com
+  erro explícito (aggregate nomeia o chunk); checkpoints antigos são ignorados.
+- Piso de fallback do `myp_summary.py` unificado em 0.30 (era 0.25).
+- `ROI aquisição %` entra no fim das colunas do XLSX (não desloca as demais).
+
 ## v5.20 — 2026-09-24 — match tcgcsv por PRODUTO + ACABAMENTO (pendencias#10)
 
 **O que muda em uma frase:** a referência TCGplayer deixa de ser "o 1º produto

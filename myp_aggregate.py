@@ -200,7 +200,11 @@ def main() -> int:
 
     all_cards: list[CardData] = []
     for p in paths:
-        chunk_cards = load_chunk_cards(p)
+        try:
+            chunk_cards = load_chunk_cards(p)
+        except ValueError as e:  # chunk em formato antigo: recusa explícita, sem traceback
+            log.error(f"Chunk recusado: {p} — {e}")
+            return 1
         log.info(f"  {p.name}: {len(chunk_cards)} cards")
         all_cards.extend(chunk_cards)
 

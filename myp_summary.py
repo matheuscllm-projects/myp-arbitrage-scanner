@@ -14,7 +14,7 @@ Uso:
 from __future__ import annotations
 
 from chat_format import reference_price
-from margin import COL_MARGEM, COL_ROI, require_new_margin
+from margin import COL_MARGEM, COL_ROI, margem_passa, require_new_margin
 
 import argparse
 import sys
@@ -228,7 +228,7 @@ def build_markdown(xlsx: str, output: str, scan_type: str,
         deal_floor = float(str(_thr_raw).strip().rstrip("%")) / 100.0
     except (TypeError, ValueError):
         deal_floor = 0.30
-    deals = [c for c in all_cards if c.get(COL_MARGEM) and c[COL_MARGEM] >= deal_floor]
+    deals = [c for c in all_cards if margem_passa(c.get(COL_MARGEM), deal_floor)]
     deals_sorted = sorted(deals, key=lambda c: c.get(COL_MARGEM) or 0, reverse=True)
 
     # v5.8 (2026-05-16): Top 15 "limpos" exclui agora 3 buckets: supranumerários,

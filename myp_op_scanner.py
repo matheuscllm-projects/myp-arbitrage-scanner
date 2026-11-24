@@ -128,7 +128,7 @@ from myp_dbz_scanner import (
     split_myp_title,
 )
 
-from margin import COL_MARGEM, COL_ROI, margem_venda, roi
+from margin import COL_MARGEM, COL_ROI, margem_passa, margem_venda, roi
 
 OP_VERSION = "v1.0"
 
@@ -904,8 +904,7 @@ class MYPOpScraper(MYPScraper):
                     self.semref.append(result)
                     continue
                 self.op_cards.append(result)
-                if result.margin_pct is not None and \
-                        result.margin_pct >= self.margin_threshold:
+                if margem_passa(result.margin_pct, self.margin_threshold):
                     log.info(f"  🔥 DEAL: {result.name} | "
                              f"MYP R${result.myp_lowest_en_nm:,.2f} | "
                              f"TCG R${result.tcg_brl:,.2f} | "
@@ -915,7 +914,7 @@ class MYPOpScraper(MYPScraper):
                 self._save_op_checkpoint(checkpoint_path, done)
 
         deals = [c for c in self.op_cards
-                 if c.margin_pct and c.margin_pct >= self.margin_threshold]
+                 if margem_passa(c.margin_pct, self.margin_threshold)]
         log.info("\n" + "═" * 60)
         log.info(f"  Produtos escaneados: {self._stats['products_scanned']}")
         log.info(f"  Cards EN NM ≥ piso: {len(self.op_cards) + len(self.semref)}")
@@ -990,6 +989,7 @@ def generate_op_xlsx(cards: list[OpCardData], semref: list[OpSemRefRow],
                   [34, 30, 11, 28, 12, 16, 14, 11, 11, 14, 10, 10, 10, 12,
                    10, 10, 10, 12, 12, 26, 55, 16, 55, 14])
     margin_col = OP_HEADERS.index(COL_MARGEM) + 1
+    roi_col = OP_HEADERS.index(COL_ROI) + 1
     for row, c in enumerate(
             sorted(cards, key=lambda x: -(x.margin_pct or -999)), start=2):
         vals = [
@@ -1008,11 +1008,13 @@ def generate_op_xlsx(cards: list[OpCardData], semref: list[OpSemRefRow],
         for col, v in enumerate(vals, 1):
             cell = ws.cell(row=row, column=col, value=v)
             cell.font = normal
+            if col == roi_col and v is not None:
+                cell.number_format = "0.00%"   # informativo
             if col == margin_col and v is not None:
                 cell.number_format = "0.00%"
-                if v >= 0.50:
+                if margem_passa(v, 0.50):
                     cell.fill = green_fill
-                elif v >= threshold:
+                elif margem_passa(v, threshold):
                     cell.fill = yellow_fill
 
     # ── Sem Ref TCG ──
@@ -1027,7 +1029,7 @@ def generate_op_xlsx(cards: list[OpCardData], semref: list[OpSemRefRow],
 
     # ── Summary ──
     ws3 = wb.create_sheet("Summary")
-    deals = [c for c in cards if c.margin_pct and c.margin_pct >= threshold]
+    deals = [c for c in cards if margem_passa(c.margin_pct, threshold)]
     pairs = [
         ("Scanner", f"myp_op_scanner {OP_VERSION} (One Piece)"),
         ("Scan Date", datetime.now().strftime("%Y-%m-%d %H:%M")),

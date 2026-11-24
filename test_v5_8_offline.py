@@ -63,6 +63,27 @@ V520_MATCH_COLUMNS = [
 # logic) foram removidos por testarem lógica que não existe mais.
 
 
+def _assert_margem_coerente(c, ref, compra):
+    """Fixture não pode declarar margem diferente de (ref - compra)/ref (sobre a venda)."""
+    if c.margin_pct is None or not ref or not compra:
+        return
+    esperado = (ref - compra) / ref
+    assert abs(c.margin_pct - esperado) < 5e-4, (
+        f"fixture incoerente: margin_pct={c.margin_pct} != (ref-compra)/ref={esperado:.4f}")
+    if c.margin_brl is not None:
+        assert abs(c.margin_brl - (ref - compra)) < 0.02, (
+            f"fixture incoerente: margin_brl={c.margin_brl} != {ref - compra}")
+
+
+from myp_arbitrage_scanner import CardData as _RealCardData
+
+
+class CardData(_RealCardData):
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        _assert_margem_coerente(self, self.tcg_player_price, self.myp_lowest_en_nm)
+
+
 def make_jirachi():
     """Reproduz o caso real: TCG declarado 75x última venda."""
     return CardData(
@@ -111,7 +132,7 @@ def make_borderline_deal():
         tcg_player_price=950.00,
         myp_last_sale_brl=100.00,
         tcg_suspect=False,
-        margin_pct=0.95,
+        margin_pct=0.9474,
         margin_brl=900.00,
         en_nm_sellers=2,
         last_updated="2026-05-16 19:30",
@@ -157,10 +178,8 @@ def test_xlsx_end_to_end():
 
     # Assert 4: clean deal está em Deals
     clean_row = find_card_in_sheet(ws_deals, "Charizard")
-    # margin 1.5 (150%) >> threshold 0.25 → entra
-    # (margin_pct é Decimal 1.5 = 150% no current code)
-    # Borderline 18 (1800%) também entra
-    # Actually let me check — threshold 0.25 = 25%. clean margin_pct=0.6 means 150%.
+    # margem 60% sobre a venda >> threshold 0.25 → entra
+    # clean: (200-80)/200 = 60% sobre a venda >> threshold 0.25.
     assert clean_row is not None, "Clean deal sumiu de 🔥 Deals"
     # v5.11.1: "TCG US$" em idx 5 → margin agora idx 7.
     print(f"  Clean deal em Deals: name={clean_row[0]!r}, margin={clean_row[7]}")
@@ -243,10 +262,10 @@ def test_price_cell_hyperlinks():
         edition="Scarlet & Violet",   # NÃO mapeado → fallback search
         product_url="https://mypcards.com/pokemon/produto/99999/psyduck",
         myp_lowest_en_nm=300.0,
-        tcg_player_price=400.0,
+        tcg_player_price=430.0,
         myp_last_sale_brl=380.0,
-        margin_pct=0.30,
-        margin_brl=100.0,
+        margin_pct=0.3023,
+        margin_brl=130.0,
         en_nm_sellers=3,
         en_truncation_risk=True,     # → Validate Manually
         last_updated="2026-05-29 12:00",
@@ -1130,7 +1149,7 @@ def test_checkpoint_save_load():
     """v5.11.4: _save_checkpoint → _load_checkpoint preserva cards, stats e o
     set de edições feitas (round-trip)."""
     import os as _os, tempfile
-    from myp_arbitrage_scanner import MYPScraper, CardData
+    from myp_arbitrage_scanner import MYPScraper
 
     sc = MYPScraper(delay=0.0)
     c = CardData(); c.name = "Pikachu (058/102)"; c.myp_lowest_en_nm = 100.0
@@ -1157,7 +1176,7 @@ def test_scan_resume_skips_done_editions():
     que faltam, e remove o checkpoint ao concluir."""
     import os as _os, tempfile, json
     import myp_arbitrage_scanner as M
-    from myp_arbitrage_scanner import MYPScraper, CardData, CHECKPOINT_VERSION
+    from myp_arbitrage_scanner import MYPScraper, CHECKPOINT_VERSION
 
     # checkpoint pré-existente: edição u1 já feita, 1 card restaurado.
     pre = CardData(); pre.name = "Done (1/100)"; pre.myp_lowest_en_nm = 100.0
@@ -1695,9 +1714,9 @@ def _make_mini_chunk(path, cards_spec):
         cards.append(CardData(
             name=name, edition="Surging Sparks", rarity="Double Rare",
             product_url=f"https://myp/{name}{i}",
-            myp_lowest_en_nm=70.0, tcg_player_price=95.0,
+            myp_lowest_en_nm=70.0, tcg_player_price=110.0,
             tcg_real_usd=usd, tcg_source=src,
-            myp_last_sale_brl=90.0, margin_pct=0.35, margin_brl=25.0,
+            myp_last_sale_brl=90.0, margin_pct=0.3636, margin_brl=40.0,
             en_nm_sellers=5, last_updated="2026-06-22",
         ))
     generate_xlsx(cards, str(path), threshold=0.30)
@@ -1815,7 +1834,7 @@ def test_summary_coverage_real_universe_with_zero_deals():
             product_url=f"https://myp/{name}", myp_lowest_en_nm=myp,
             tcg_player_price=myp * 1.05,   # margem ~5% → NÃO é deal ≥30%
             tcg_real_usd=usd, tcg_source="pokemontcg.io",
-            myp_last_sale_brl=myp, margin_pct=0.05, margin_brl=myp * 0.05,
+            myp_last_sale_brl=myp, margin_pct=0.0476, margin_brl=myp * 0.05,
             en_nm_sellers=3, last_updated="2026-06-20",
         )
 
@@ -1893,9 +1912,9 @@ def test_summary_deal_floor_matches_real_threshold():
     card = CardData(
         name="Snorlax ex", edition="Surging Sparks", rarity="Ultra Rara",
         product_url="https://myp/s", myp_lowest_en_nm=100.0,
-        tcg_player_price=127.0,            # margem 27% → sub-threshold de 30%
-        tcg_real_usd=25.4, tcg_source="pokemontcg.io", myp_last_sale_brl=100.0,
-        margin_pct=0.27, margin_brl=27.0, en_nm_sellers=3, last_updated="2026-06-20",
+        tcg_player_price=137.0,            # margem 27% sobre a venda → sub-threshold de 30%
+        tcg_real_usd=27.4, tcg_source="pokemontcg.io", myp_last_sale_brl=100.0,
+        margin_pct=0.27, margin_brl=37.0, en_nm_sellers=3, last_updated="2026-06-20",
     )
     with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
         xlsx = f.name
@@ -2793,7 +2812,7 @@ def test_v520_columns_roundtrip_aggregate_and_link():
         name="Umbreon (Master Ball Pattern) (059/131)", edition="SV: Prismatic Evolutions",
         product_url="https://myp/umbreon", myp_lowest_en_nm=250.0,
         tcg_player_price=365.35, tcg_real_usd=73.07, tcg_source="tcgcsv",
-        margin_pct=0.4614, margin_brl=115.35, en_nm_sellers=2, last_updated="2026-09-24",
+        margin_pct=0.3157, margin_brl=115.35, en_nm_sellers=2, last_updated="2026-09-24",
         myp_finish="(vazio)", tcg_finish="Holofoil", tcg_product_id=610679,
         tcg_product_name="Umbreon (Master Ball Pattern)", match_status="VERIFIED",
         match_reason="nome exato entre 3 produtos com o nº",

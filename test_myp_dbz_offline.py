@@ -72,6 +72,10 @@ def make_card(**kw):
         last_updated="2026-08-03 00:00",
     )
     base.update(kw)
+    _ref, _compra = base["tcg_brl"], base["myp_lowest_en_nm"]
+    if base.get("margin_pct") is not None:
+        assert abs(base["margin_pct"] - (_ref - _compra) / _ref) < 5e-4, "fixture incoerente: margin_pct"
+        assert abs(base["margin_brl"] - (_ref - _compra)) < 0.02, "fixture incoerente: margin_brl"
     return DbzCardData(**base)
 
 
@@ -500,9 +504,11 @@ def _build_xlsx(tmpdir: Path) -> Path:
                         margin_pct=0.6047, margin_brl=1530.0,
                         flag_ref_volatil=True)
     abaixo = make_card(name="Vegeta - BT3-002", en_name="Vegeta",
-                       code="BT3-002", margin_pct=0.10, margin_brl=20.0)
+                       code="BT3-002", myp_lowest_en_nm=90.0, tcg_brl=100.0,
+                       margin_pct=0.10, margin_brl=10.0)
     trunc = make_card(name="Zamasu - BT4-050", en_name="Zamasu",
-                      code="BT4-050", margin_pct=0.55,
+                      code="BT4-050", myp_lowest_en_nm=45.0, tcg_brl=100.0,
+                      margin_pct=0.55, margin_brl=55.0,
                       en_truncation_risk=True)
     semref = [SemRefRow(name="Beerus - XD1-01", en_name="Beerus",
                         code="XD1-01", edition="Universe 6 Assailants",
@@ -573,7 +579,7 @@ def test_summary_markdown_buckets_e_links():
 def test_summary_threshold_vem_do_xlsx():
     # piso do summary = threshold REAL do scan (lição v5.14.1 do Pokémon)
     with tempfile.TemporaryDirectory() as td:
-        card45 = make_card(margin_pct=0.45, margin_brl=45.0)
+        card45 = make_card(myp_lowest_en_nm=55.0, tcg_brl=100.0, margin_pct=0.45, margin_brl=45.0)
         out = Path(td) / "t50.xlsx"
         generate_dbz_xlsx([card45], [], str(out), threshold=0.50, fx=5.0)
         md_path = Path(td) / "t50.md"

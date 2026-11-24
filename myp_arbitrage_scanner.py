@@ -61,7 +61,7 @@ Changelog v5.3 (2026-05-12 — após caso Psyduck/bartsimpson):
 # NameError em qualquer setup que tenha cloudscraper (todos os production runs).
 import os
 import requests
-from margin import COL_MARGEM, COL_ROI, margem_venda, roi
+from margin import COL_MARGEM, COL_ROI, margem_passa, margem_venda, roi
 try:
     import cloudscraper
     HAS_CLOUDSCRAPER = True
@@ -2609,7 +2609,7 @@ class MYPScraper:
                 if checkpoint_path and (j == 0 or (j + 1) % 10 == 0):
                     self._save_checkpoint(checkpoint_path, done_editions)
 
-                if card.margin_pct is not None and card.margin_pct >= self.margin_threshold:
+                if margem_passa(card.margin_pct, self.margin_threshold):
                     log.info(
                         f"  🔥 DEAL: {card.name} | "
                         f"EN NM lowest: R${card.myp_lowest_en_nm:,.2f} | "
@@ -2633,7 +2633,7 @@ class MYPScraper:
                 self._save_checkpoint(checkpoint_path, done_editions)
 
         # Summary
-        deals = [c for c in self.cards if c.margin_pct and c.margin_pct >= self.margin_threshold]
+        deals = [c for c in self.cards if margem_passa(c.margin_pct, self.margin_threshold)]
         log.info("\n" + "═" * 60)
         log.info(f"  Pages fetched: {self._stats['pages_fetched']}")
         log.info(f"  Products scanned: {self._stats['products_scanned']}")
@@ -2720,7 +2720,7 @@ def generate_xlsx(cards: list[CardData], output_path: str, threshold: float):
     HYPERLINK_FONT = Font(name="Arial", size=10, color="0563C1", underline="single")
 
     # v5.8 (2026-05-16): 2 colunas novas pra surfaçar o sanity check H2:
-    #   - "MYP Last Sale (R$)" entre TCG Player e Margin %
+    #   - "MYP Last Sale (R$)" entre TCG Player e Margem venda %
     #   - "⚠️ TCG Suspect" depois de EN Trunc
     # Sem isso, o operador via Jirachi PR-SM_SM161 como deal #1 a 1400% mesmo
     # com TCG inflado 75x vs última venda real. Aggregate lê via dict-by-name,
@@ -2768,7 +2768,7 @@ def generate_xlsx(cards: list[CardData], output_path: str, threshold: float):
     TCG_PRICE_COL = 5               # v5.8.8: hyperlink → busca TCGplayer por nome
     TCG_SOURCE_COL = 7              # v5.14: fonte do preço (real/fallback)
     MARGIN_COL = 9
-    ROI_COL = 25                    # informativo, no fim
+    ROI_COL = headers.index(COL_ROI) + 1   # informativo, no fim (derivado do cabeçalho)
     EN_TRUNC_COL = 12
     TCG_SUSPECT_COL = 13
     SINGLE_SELLER_COL = 14
@@ -2854,10 +2854,10 @@ def generate_xlsx(cards: list[CardData], output_path: str, threshold: float):
                 # is "Margem venda %" — value is stored as fraction (e.g. 0.483)
                 # so format must render as percentage to match semantics.
                 c.number_format = '0.00%'
-                if v and v >= 0.50:
+                if margem_passa(v, 0.50):
                     c.font = bold_green
                     c.fill = green_fill
-                elif v and v >= threshold:
+                elif margem_passa(v, threshold):
                     c.fill = yellow_fill
                 elif v and v < 0:
                     c.fill = red_fill
@@ -2910,14 +2910,14 @@ def generate_xlsx(cards: list[CardData], output_path: str, threshold: float):
         )
     deals = sorted(
         [c for c in cards
-         if c.margin_pct and c.margin_pct >= threshold
+         if margem_passa(c.margin_pct, threshold)
          and not c.tcg_suspect
          and not _combined_single_seller_risk(c)],
         key=lambda x: x.margin_pct or 0, reverse=True,
     )
     for i, card in enumerate(deals, 2):
         write_card_row(ws1, i, card)
-        if card.margin_pct and card.margin_pct >= 0.50:
+        if margem_passa(card.margin_pct, 0.50):
             for col in range(1, 4):
                 ws1.cell(row=i, column=col).fill = green_fill
 

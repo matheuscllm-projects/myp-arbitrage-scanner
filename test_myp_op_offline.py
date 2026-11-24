@@ -74,6 +74,10 @@ def make_card(**kw):
         last_updated="2026-08-09 00:00",
     )
     base.update(kw)
+    _ref, _compra = base["tcg_brl"], base["myp_lowest_en_nm"]
+    if base.get("margin_pct") is not None:
+        assert abs(base["margin_pct"] - (_ref - _compra) / _ref) < 5e-4, "fixture incoerente: margin_pct"
+        assert abs(base["margin_brl"] - (_ref - _compra)) < 0.02, "fixture incoerente: margin_brl"
     return OpCardData(**base)
 
 
@@ -440,9 +444,11 @@ def _build_xlsx(tmpdir: Path) -> Path:
                         margin_pct=0.6047, margin_brl=1530.0,
                         flag_ref_volatil=True)
     abaixo = make_card(name="Usopp - OP01-002", en_name="Usopp",
-                       code="OP01-002", margin_pct=0.10, margin_brl=20.0)
+                       code="OP01-002", myp_lowest_en_nm=90.0, tcg_brl=100.0,
+                       margin_pct=0.10, margin_brl=10.0)
     trunc = make_card(name="Sanji - OP01-013", en_name="Sanji",
-                      code="OP01-013", margin_pct=0.55,
+                      code="OP01-013", myp_lowest_en_nm=45.0, tcg_brl=100.0,
+                      margin_pct=0.55, margin_brl=55.0,
                       en_truncation_risk=True)
     semref = [OpSemRefRow(name="Buggy - OP09-999", en_name="Buggy",
                           code="OP09-999", edition="Emperors in the New World",
@@ -510,7 +516,7 @@ def test_summary_markdown_buckets_e_links():
 
 def test_summary_threshold_vem_do_xlsx():
     with tempfile.TemporaryDirectory() as td:
-        card45 = make_card(margin_pct=0.45, margin_brl=45.0)
+        card45 = make_card(myp_lowest_en_nm=55.0, tcg_brl=100.0, margin_pct=0.45, margin_brl=45.0)
         out = Path(td) / "t50.xlsx"
         generate_op_xlsx([card45], [], str(out), threshold=0.50, fx=5.0)
         md_path = Path(td) / "t50.md"
